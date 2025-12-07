@@ -2,7 +2,7 @@
  * API client for the LLM Council backend.
  */
 
-const API_BASE = 'http://api.bundlecarte.com';
+const API_BASE = 'https://api.bundlecarte.com';
 
 export const api = {
   /**
