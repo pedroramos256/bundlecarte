@@ -11,9 +11,7 @@ import asyncio
 
 from . import storage
 from .council import (
-    run_full_council, run_full_council_auction, generate_conversation_title, 
-    stage1_collect_responses, stage2_collect_rankings, 
-    stage3_synthesize_final, calculate_aggregate_rankings,
+    run_full_council, generate_conversation_title, 
     stage0_collect_quotes  # New auction mechanism
 )
 
@@ -66,10 +64,10 @@ async def root():
     return {"status": "ok", "service": "LLM Council API"}
 
 
-@app.post("/api/test/stage1-quotes")
+@app.post("/api/test/stage0-quotes")
 async def test_stage0_quotes(request: SendMessageRequest):
     """
-    Test endpoint for Stage 1: Token Budget Quoting.
+    Test endpoint for Stage 0: Token Budget Quoting.
     Returns quotes from all LLMs for a given prompt.
     """
     quotes = await stage0_collect_quotes(request.content)
@@ -132,7 +130,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         storage.update_conversation_title(conversation_id, title)
 
     # Run the 6-stage auction council process
-    results = await run_full_council_auction(request.content)
+    results = await run_full_council(request.content)
 
     # Add assistant message with all stages (simplified for storage)
     storage.add_assistant_message(
