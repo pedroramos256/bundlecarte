@@ -14,10 +14,15 @@ from .council import run_full_council, generate_conversation_title, stage1_colle
 
 app = FastAPI(title="LLM Council API")
 
-# Enable CORS for local development
+# Enable CORS for production and local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://bundlecarte.com"],
+    allow_origins=[
+        "https://bundlecarte.com",
+        "https://www.bundlecarte.com",
+        "http://localhost:5173",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
