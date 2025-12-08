@@ -149,7 +149,6 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     return results
 
 
-
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, request: SendMessageRequest):
     """
@@ -254,5 +253,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         }
-    )mport uvicorn
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
