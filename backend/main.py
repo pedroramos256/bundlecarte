@@ -10,7 +10,12 @@ import json
 import asyncio
 
 from . import storage
-from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .council import (
+    run_full_council, run_full_council_auction, generate_conversation_title, 
+    stage1_collect_responses, stage2_collect_rankings, 
+    stage3_synthesize_final, calculate_aggregate_rankings,
+    stage0_collect_quotes  # New auction mechanism
+)
 
 app = FastAPI(title="LLM Council API")
 
@@ -61,6 +66,26 @@ async def root():
     return {"status": "ok", "service": "LLM Council API"}
 
 
+@app.post("/api/test/stage1-quotes")
+async def test_stage0_quotes(request: SendMessageRequest):
+    """
+    Test endpoint for Stage 1: Token Budget Quoting.
+    Returns quotes from all LLMs for a given prompt.
+    """
+    quotes = await stage0_collect_quotes(request.content)
+    
+    # Calculate total cost
+    total_cost = sum(q["estimated_cost"] for q in quotes)
+    
+    return {
+        "stage": "stage0_quotes",
+        "prompt": request.content,
+        "quotes": quotes,
+        "total_estimated_cost": total_cost,
+        "currency": "USD"
+    }
+
+
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
     """List all conversations (metadata only)."""
@@ -87,7 +112,7 @@ async def get_conversation(conversation_id: str):
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and run the 3-stage council process.
+    Send a message and run the 6-stage auction council process.
     Returns the complete response with all stages.
     """
     # Check if conversation exists
@@ -106,32 +131,29 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
-    # Run the 3-stage council process
-    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content
-    )
+    # Run the 6-stage auction council process
+    results = await run_full_council_auction(request.content)
 
-    # Add assistant message with all stages
+    # Add assistant message with all stages (simplified for storage)
     storage.add_assistant_message(
         conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result
+        results.get("stage1_answers", []),
+        [],  # No stage2 in new format
+        {
+            "model": results["stage2_chairman_eval"]["model"],
+            "response": results["stage2_chairman_eval"]["aggregated_answer"]
+        }
     )
 
-    # Return the complete response with metadata
-    return {
-        "stage1": stage1_results,
-        "stage2": stage2_results,
-        "stage3": stage3_result,
-        "metadata": metadata
-    }
+    # Return the complete response with all auction stages
+    return results
+
 
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and stream the 3-stage council process.
+    Send a message and stream the 6-stage auction council process.
     Returns Server-Sent Events as each stage completes.
     """
     # Check if conversation exists
@@ -152,21 +174,53 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
+            # Import auction stages
+            from .council import (
+                stage0_collect_quotes, stage1_collect_responses, stage2_evaluate_mccs,
+                stage3_llm_self_evaluation, stage4_chairman_final_decision,
+                stage5_llm_final_acceptance, stage6_calculate_final_payments
+            )
+
+            # Stage 0: Token quotes
+            yield f"data: {json.dumps({'type': 'stage0_start'}, ensure_ascii=False)}\n\n"
+            stage0_quotes = await stage0_collect_quotes(request.content)
+            yield f"data: {json.dumps({'type': 'stage0_complete', 'data': stage0_quotes}, ensure_ascii=False)}\n\n"
+
+            max_tokens_per_model = {q['model']: q['quoted_tokens'] for q in stage0_quotes}
+
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'}, ensure_ascii=False)}\n\n"
-            stage1_results = await stage1_collect_responses(request.content)
+            stage1_results = await stage1_collect_responses(request.content, max_tokens_per_model)
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results}, ensure_ascii=False)}\n\n"
 
-            # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'}, ensure_ascii=False)}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}}, ensure_ascii=False)}\n\n"
+            if not stage1_results:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond'}, ensure_ascii=False)}\n\n"
+                return
 
-            # Stage 3: Synthesize final answer
+            # Stage 2: Chairman evaluation
+            yield f"data: {json.dumps({'type': 'stage2_start'}, ensure_ascii=False)}\n\n"
+            stage2_chairman_eval = await stage2_evaluate_mccs(request.content, stage0_quotes, stage1_results)
+            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_chairman_eval}, ensure_ascii=False)}\n\n"
+
+            # Stage 3: LLM self-evaluation
             yield f"data: {json.dumps({'type': 'stage3_start'}, ensure_ascii=False)}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result}, ensure_ascii=False)}\n\n"
+            stage3_self_evals = await stage3_llm_self_evaluation(request.content, stage0_quotes, stage1_results, stage2_chairman_eval)
+            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_self_evals}, ensure_ascii=False)}\n\n"
+
+            # Stage 4: Chairman final decision
+            yield f"data: {json.dumps({'type': 'stage4_start'}, ensure_ascii=False)}\n\n"
+            stage4_chairman_decision = await stage4_chairman_final_decision(request.content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals)
+            yield f"data: {json.dumps({'type': 'stage4_complete', 'data': stage4_chairman_decision}, ensure_ascii=False)}\n\n"
+
+            # Stage 5: LLM final acceptance
+            yield f"data: {json.dumps({'type': 'stage5_start'}, ensure_ascii=False)}\n\n"
+            stage5_llm_finals = await stage5_llm_final_acceptance(request.content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals, stage4_chairman_decision)
+            yield f"data: {json.dumps({'type': 'stage5_complete', 'data': stage5_llm_finals}, ensure_ascii=False)}\n\n"
+
+            # Stage 6: Calculate payments
+            yield f"data: {json.dumps({'type': 'stage6_start'}, ensure_ascii=False)}\n\n"
+            stage6_payments = stage6_calculate_final_payments(stage0_quotes, stage3_self_evals, stage4_chairman_decision, stage5_llm_finals)
+            yield f"data: {json.dumps({'type': 'stage6_complete', 'data': stage6_payments}, ensure_ascii=False)}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
@@ -178,8 +232,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             storage.add_assistant_message(
                 conversation_id,
                 stage1_results,
-                stage2_results,
-                stage3_result
+                [],
+                {
+                    "model": stage2_chairman_eval["model"],
+                    "response": stage2_chairman_eval["aggregated_answer"]
+                }
             )
 
             # Send completion event
@@ -197,9 +254,5 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         }
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
+    )mport uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
