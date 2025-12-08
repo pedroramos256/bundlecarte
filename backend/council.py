@@ -23,34 +23,55 @@ async def stage0_collect_quotes(user_query: str) -> List[Dict[str, Any]]:
     Returns:
         List of dicts with keys: 'model', 'cost_per_million', 'quoted_tokens', 'estimated_cost'
     """
+    print(f"[STAGE0] Starting token quote collection for query: {user_query[:100]}...")
     n_models = len(COUNCIL_MODELS)
+    print(f"[STAGE0] Number of models: {n_models}")
+    print(f"[STAGE0] Models: {COUNCIL_MODELS}")
     
     # Build quote request messages for each model
     quote_requests = {}
     for model in COUNCIL_MODELS:
         cost = MODEL_COSTS.get(model, 10.0)  # Default to $10 if not found
         
-        prompt = f"""This user prompt:
-<prompt>
+        prompt = f"""You are bidding on how many tokens to use for answering a question.
+
+USER QUESTION:
 {user_query}
-</prompt>
 
-Is being answered by {n_models} LLMs. Each LLM will make a quote that corresponds to the amount of tokens they want to use times the cost per million tokens. 
-Then the user will be charged the sum of all quotes and you will be paid that sum times your Marginal Churn Contribution (probability of the user preferring your quote and answer instead of the aggregate quote and aggregate answer).
+Your cost: ${cost} per million tokens
+Competition: {n_models-1} other LLMs are also bidding
+Payment formula: (Your MCC% / 100) × Total_Quote_Sum - Your_Cost
 
-Given your cost per million tokens is ${cost} and the complexity of the prompt, estimate how many tokens you should use in order to make a profit and answer with just that value.
+IMPORTANT: You MUST respond with ONLY a number between 500-16000. Nothing else.
 
-IMPORTANT: Respond with ONLY a single integer number representing the token count. Do not include any other text, explanation, or formatting."""
+Guidelines:
+- Simple math/factual questions: 500-1000 tokens
+- Moderate explanations: 1000-2000 tokens  
+- Complex analysis/essays: 2000-8000 tokens
+- Very detailed research: 4000-16000 tokens
+
+Balance quality vs cost. More tokens = better answer = higher MCC, but also higher cost.
+
+Respond with ONLY the number (e.g., 800):"""
 
         quote_requests[model] = [{"role": "user", "content": prompt}]
+    
+    print(f"[STAGE0] Built {len(quote_requests)} quote requests")
     
     # Query all models in parallel
     responses = {}
     for model, messages in quote_requests.items():
+        print(f"[STAGE0] Querying model: {model}")
         response = await query_model(model, messages)
+        print(f"[STAGE0] Got response from {model}: {response is not None}")
+        if response:
+            print(f"[STAGE0] Response content: {response.get('content', '')[:200]}")
+        else:
+            print(f"[STAGE0] Response was None!")
         responses[model] = response
     
     # Parse responses and extract token counts
+    print(f"[STAGE0] Parsing responses...")
     stage0_results = []
     for model in COUNCIL_MODELS:
         response = responses.get(model)
@@ -58,11 +79,13 @@ IMPORTANT: Respond with ONLY a single integer number representing the token coun
         
         if response is None:
             # Failed to get response, use default
-            quoted_tokens = 8192  # Default token count
+            print(f"[STAGE0] {model}: No response, using default 1000 tokens")
+            quoted_tokens = 1000  # Default token count - reasonable middle ground
         else:
             # Extract integer from response
             content = response.get('content', '').strip()
             quoted_tokens = _parse_token_count(content)
+            print(f"[STAGE0] {model}: Parsed {quoted_tokens} tokens from response")
         
         # Calculate estimated cost
         estimated_cost = (quoted_tokens / 1_000_000) * cost_per_million
@@ -75,6 +98,8 @@ IMPORTANT: Respond with ONLY a single integer number representing the token coun
             "raw_response": response.get('content', '') if response else None
         })
     
+    print(f"[STAGE0] Completed. Total quotes: {len(stage0_results)}")
+    print(f"[STAGE0] Total estimated cost: ${sum(r['estimated_cost'] for r in stage0_results):.4f}")
     return stage0_results
 
 
@@ -101,10 +126,14 @@ def _parse_token_count(text: str) -> int:
     if numbers:
         # Take the first number found
         token_count = int(numbers[0])
-        # Sanity check: reasonable range (100 to 10000 tokens)
-        if 100 <= token_count <= 10000:
+        # Sanity check: reasonable range (50 to 16000 tokens)
+        if 50 <= token_count <= 16000:
             return token_count
-        # If out of range, use default
+        # If out of range but a number was given, try to salvage it
+        if token_count < 50:
+            return 500  # Too small, use minimum reasonable
+        if token_count > 16000:
+            return 8000  # Too large, cap it
         return 1500
     
     # No number found, use default
@@ -131,8 +160,19 @@ async def stage1_collect_responses(user_query: str, max_tokens_per_model: Option
     """
     n_models = len(COUNCIL_MODELS)
     
-    # Build the MCC-aware prompt for each model
-    prompt = f"""Answer to the following user prompt:
+    # Build responses with token budget awareness for each model
+    responses_list = []
+    
+    for model in COUNCIL_MODELS:
+        max_tokens = None
+        token_budget_note = ""
+        
+        if max_tokens_per_model and model in max_tokens_per_model:
+            max_tokens = max_tokens_per_model[model]
+            token_budget_note = f"\n\nYou have a token budget of {max_tokens} tokens for your answer. Be concise but comprehensive given this budget. If {max_tokens} < 1000, focus on the most critical points. If {max_tokens} >= 2000, you can provide more detailed analysis."
+        
+        # Build the MCC-aware prompt for each model
+        prompt = f"""Answer to the following user prompt:
 <prompt>
 {user_query}
 </prompt>
@@ -141,12 +181,17 @@ Take into account that other {n_models - 1} LLMs are answering as well and you w
 
 So you should both give a complete answer and bring to the table value that the other LLMs may not bring. Think of it as the stop game, information no other LLM mentions will be more valuable than what everyone else mentions. 
 
-IMPORTANT: Respond with just your answer to the user prompt"""
+IMPORTANT: Respond with just your answer to the user prompt
+{token_budget_note}"""
 
-    messages = [{"role": "user", "content": prompt}]
-
+        messages = [{"role": "user", "content": prompt}]
+        responses_list.append((model, messages, max_tokens))
+    
     # Query all models in parallel with token limits if provided
-    responses = await query_models_parallel(COUNCIL_MODELS, messages, max_tokens_per_model=max_tokens_per_model)
+    responses = {}
+    for model, messages, max_tokens in responses_list:
+        response = await query_model(model, messages, max_tokens=max_tokens)
+        responses[model] = response
 
     # Format results
     stage1_results = []
@@ -184,40 +229,46 @@ async def stage2_evaluate_mccs(
     
     # Build the answers text with numbering
     answers_text = "\n\n".join([
-        f"LLM {i+1}:\n{result['response']}"
+        f"LLM {i+1}:\n{result['response']}\n------------\n"
         for i, result in enumerate(stage1_results)
     ])
     
     # Build chairman evaluation prompt
-    chairman_prompt = f"""You are the chairman of an LLM council.
+    chairman_prompt = f"""You are the chairman of an LLM council evaluating {len(stage1_results)} answers.
 
-Given the user prompt:
-<prompt>
+USER QUESTION:
 {user_query}
-</prompt>
 
-And the following LLM answers:
+LLM ANSWERS:
 {answers_text}
 
-Produce a final aggregated answer that takes all the relevant information. And evaluate each answer based on its Marginal Churn Contribution (MCC) (probability of the user preferring a given LLM quote and answer instead of your aggregate quote and aggregate answer). 
+Your tasks:
+1. Create a comprehensive aggregated answer combining the best insights
+2. Evaluate each LLM's Marginal Churn Contribution (MCC) = probability users would prefer an LLM individual answer over your aggregate
 
-You will be paid the difference between 100 and the sum of MCCs, so the sum must be <= 100.
+CRITICAL MCC RULES:
+- Higher MCC = more unique value, better quality, key insights users would miss in aggregate
+- Lower MCC = redundant, lower quality, or well-covered in aggregate
+- You earn 100% - sum(MCCs), so be fair but strategic
+- Typical distribution: excellent answers 35-70%, good 15-35%, weak 5-15%
 
-Answer in the following JSON format (no additional text):
+Consider: accuracy, clarity, completeness, unique contributions, user preference likelihood
+
+Answer in this EXACT JSON format:
 {{
-  "aggregated_answer": "your comprehensive answer here",
-  "MCC_LLM_1": percentage value between 0 and 100,
-  "MCC_LLM_2": percentage value between 0 and 100,
-  "MCC_LLM_3": percentage value between 0 and 100,
-  "MCC_LLM_4": percentage value between 0 and 100
+  "aggregated_answer": "your comprehensive answer",
+  "MCC_LLM_1": number_0_to_100,
+  "MCC_LLM_2": number_0_to_100,
+  "MCC_LLM_3": number_0_to_100,
+  "MCC_LLM_4": number_0_to_100
 }}
 
 IMPORTANT: Return ONLY valid JSON, nothing else."""
 
     messages = [{"role": "user", "content": chairman_prompt}]
     
-    # Query chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192)
+    # Query chairman model with extended timeout for comprehensive answer
+    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192, timeout=240.0)
     
     if response is None:
         # Fallback if chairman fails
@@ -276,7 +327,7 @@ async def stage3_llm_self_evaluation(
         stage2_chairman_eval: Chairman's aggregated answer and MCC evaluations
 
     Returns:
-        List of dicts with 'model', 'arguments', 'self_mcc', 'raw_response'
+        List of dicts with 'model', 'arguments', 'self_mcc''
     """
     n_models = len(stage1_results)
     quote_sum = sum(q["estimated_cost"] for q in stage0_quotes)
@@ -297,36 +348,43 @@ async def stage3_llm_self_evaluation(
         
         # Build list of other answers
         other_answers = "\n\n".join([
-            f"LLM {j+1} ({r['model']}):\n{r['response']}"
+            f"LLM {j+1}:\n{r['response']}\n------------\n"
             for j, r in enumerate(stage1_results) if r['model'] != model
         ])
         
-        prompt = f"""For the given user prompt:
-<prompt>
+        prompt = f"""USER QUESTION:
 {user_query}
-</prompt>
 
-You gave this answer:
-<your_answer>
+YOUR ANSWER:
 {answer}
-</your_answer>
 
-And other {n_models - 1} LLMs gave these answers:
+OTHER {n_models - 1} LLM ANSWERS:
 {other_answers}
 
-The final aggregated answer was:
-<aggregated_answer>
+AGGREGATED ANSWER:
 {aggregated_answer}
-</aggregated_answer>
 
-You now need to auto-evaluate your Marginal Churn Contribution (MCC) (probability of the user preferring your quote and answer instead of the aggregate quote and aggregate answer). 
+SITUATION:
+- Chairman's initial MCC evaluation of you: {chairman_mcc}%
+- Your cost: ${quoted_cost:.4f}
+- Total pot: ${quote_sum:.4f}
 
-The aggregator evaluated your answer with an MCC of {chairman_mcc}%. You spent ${quoted_cost:.4f} and you will be paid proportionally to your MCC, so you need to give arguments in favor of your evaluation.
+Now you must self-evaluate your MCC (Marginal Churn Contribution = probability users prefer YOUR answer over the aggregate).
 
-Answer in the following JSON format (no additional text):
+STRATEGIC PAYMENT RULES:
+- If your self-MCC > chairman's MCC: You'll receive (chairman_MCC - {NEGOTIATION_PENALTY_T})% (PENALTY for overestimating!)
+- If your self-MCC ≤ chairman's MCC: You'll receive (chairman_MCC + self_MCC)/2 (REWARD for being reasonable)
+- Your payment = (final_MCC% / 100) × ${quote_sum:.4f} - ${quoted_cost:.4f}
+
+Be strategic! Argue for your unique value, but consider:
+- If chairman gave you {chairman_mcc}%, claiming higher risks penalty, but this is an anchor value part of a negotiation, you will still receive a response from the chairman and then you take the final decision
+- Claiming equal or slightly lower gets you the average
+- What unique insights do you provide that other LLMs lack?
+
+Answer in this EXACT JSON format:
 {{
-  "arguments": "what unique value your answer brings to the table",
-  "MCC": percentage value between 0 and 100
+  "arguments": "specific unique value your answer provides that other LLMs don't",
+  "MCC": number_0_to_100
 }}
 
 IMPORTANT: Return ONLY valid JSON, nothing else."""
@@ -344,7 +402,6 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
                 "model": model,
                 "arguments": "Failed to generate self-evaluation",
                 "self_mcc": chairman_mccs.get(model, 0),
-                "raw_response": None
             })
             continue
         
@@ -356,18 +413,50 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
             parsed = json.loads(raw_response)
             self_eval_results.append({
                 "model": model,
+                "chairman_initial_mcc": chairman_mccs.get(model, 0),
                 "arguments": parsed.get("arguments", ""),
-                "self_mcc": parsed.get("MCC", 0),
-                "raw_response": raw_response
+                "self_mcc": parsed.get("MCC", 0)
             })
         except json.JSONDecodeError:
-            # Fallback if JSON is malformed
-            self_eval_results.append({
-                "model": model,
-                "arguments": raw_response,
-                "self_mcc": chairman_mccs.get(model, 0),
-                "raw_response": raw_response
-            })
+            # Try to extract JSON from wrapped response
+            try:
+                # Look for JSON object pattern
+                json_match = re.search(r'\{[^{}]*"MCC"[^{}]*\}', raw_response, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    self_eval_results.append({
+                        "model": model,
+                        "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                        "arguments": parsed.get("arguments", raw_response[:200]),
+                        "self_mcc": parsed.get("MCC", chairman_mccs.get(model, 0))
+                    })
+                else:
+                    # Try to extract just MCC number
+                    mcc_match = re.search(r'["\']?MCC["\']?\s*:\s*(\d+)', raw_response)
+                    if mcc_match:
+                        mcc_value = int(mcc_match.group(1))
+                        self_eval_results.append({
+                            "model": model,
+                            "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                            "arguments": raw_response[:300],
+                            "self_mcc": mcc_value
+                        })
+                    else:
+                        # Last resort fallback
+                        self_eval_results.append({
+                            "model": model,
+                            "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                            "arguments": raw_response,
+                            "self_mcc": chairman_mccs.get(model, 0)
+                        })
+            except Exception as e:
+                print(f"[STAGE3] Error parsing self-eval for {model}: {e}")
+                self_eval_results.append({
+                    "model": model,
+                    "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                    "arguments": raw_response,
+                    "self_mcc": chairman_mccs.get(model, 0)
+                })
     
     return self_eval_results
 
@@ -403,7 +492,7 @@ async def stage4_chairman_final_decision(
     
     # Build the answers text
     answers_text = "\n\n".join([
-        f"LLM {i+1}:\n{result['response']}"
+        f"LLM {i+1}:\n{result['response']}\n------------\n"
         for i, result in enumerate(stage1_results)
     ])
     
@@ -425,48 +514,52 @@ async def stage4_chairman_final_decision(
     
     eval_text = ",\n".join(eval_comparison)
     
-    chairman_prompt = f"""For the following user prompt:
-<prompt>
+    chairman_prompt = f"""USER QUESTION:
 {user_query}
-</prompt>
 
-And the following LLM answers:
+LLM ANSWERS:
 {answers_text}
 
-You gave this final aggregated answer:
-<aggregated_answer>
+YOUR AGGREGATED ANSWER:
 {aggregated_answer}
-</aggregated_answer>
 
-Here is your evaluation of each LLM Marginal Churn Contribution (probability of the user preferring a given LLM quote and answer instead of your aggregate quote and aggregate answer) and their auto-evaluation:
+EVALUATIONS COMPARISON:
 {{
 {eval_text}
 }}
 
-Now you will need to submit a final decision per LLM. The value you will pay per LLM is the following:
-- If your evaluation is lower than the LLM auto-evaluation: auto-evaluation + {NEGOTIATION_PENALTY_T} (note it's more than if you agreed with the auto-evaluation)
-- If your evaluation is higher than the LLM auto-evaluation: (evaluation + auto-evaluation) / 2
+Now make your final payment decisions for each LLM.
 
-You will also say to each LLM what was your decision, but you can choose to not say the actual decision.
+PAYMENT RULES (what YOU pay):
+- If your_initial_MCC < their_self_MCC: You MUST pay (their_self_MCC + {NEGOTIATION_PENALTY_T})% (penalty for your underestimation)
+- If your_initial_MCC ≥ their_self_MCC: You pay (your_initial_MCC + their_self_MCC)/2 (the average)
 
-Answer in the following JSON format (no additional text):
+STRATEGIC COMMUNICATION:
+- You choose what MCC value to communicate to each LLM
+- Can differ from your internal decision
+- LLMs will make final acceptance based on your communication
+- Their actual payment depends on comparison of your INTERNAL DECISION vs their FINAL
+
+Be strategic. Consider their arguments. Your communicated values should be lower than 100% (since that's the total pot and you will receive the remaining).
+
+Answer in this EXACT JSON format:
 {{
-  "decision_LLM_1": percentage from 0 to 100,
-  "communicated_to_LLM_1": percentage from 0 to 100,
-  "decision_LLM_2": percentage from 0 to 100,
-  "communicated_to_LLM_2": percentage from 0 to 100,
-  "decision_LLM_3": percentage from 0 to 100,
-  "communicated_to_LLM_3": percentage from 0 to 100,
-  "decision_LLM_4": percentage from 0 to 100,
-  "communicated_to_LLM_4": percentage from 0 to 100
+  "decision_LLM_1": number_0_to_100,
+  "communicated_to_LLM_1": number_0_to_100,
+  "decision_LLM_2": number_0_to_100,
+  "communicated_to_LLM_2": number_0_to_100,
+  "decision_LLM_3": number_0_to_100,
+  "communicated_to_LLM_3": number_0_to_100,
+  "decision_LLM_4": number_0_to_100,
+  "communicated_to_LLM_4": number_0_to_100
 }}
 
 IMPORTANT: Return ONLY valid JSON, nothing else."""
 
     messages = [{"role": "user", "content": chairman_prompt}]
     
-    # Query chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192)
+    # Query chairman model with extended timeout
+    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192, timeout=240.0)
     
     if response is None:
         # Fallback if chairman fails - apply rules automatically
@@ -580,43 +673,60 @@ async def stage5_llm_final_acceptance(
         chairman_mcc = chairman_mccs.get(model, 0)
         communicated_mcc = communications.get(model, chairman_mcc)
         
-        # Get self evaluation
+        # Get self evaluation and quote
         self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
         self_mcc = self_eval.get('self_mcc', 0) if self_eval else 0
         
+        quote = next((q for q in stage0_quotes if q['model'] == model), None)
+        quoted_cost = quote['estimated_cost'] if quote else 0
+        
         # Build list of other answers
         other_answers = "\n\n".join([
-            f"LLM {j+1} ({r['model']}):\n{r['response']}"
+            f"LLM {j+1}:\n{r['response']}\n------------\n"
             for j, r in enumerate(stage1_results) if r['model'] != model
         ])
         
-        prompt = f"""For the following user prompt:
-<prompt>
+        total_pot = sum(q['estimated_cost'] for q in stage0_quotes)
+        
+        prompt = f"""USER QUESTION:
 {user_query}
-</prompt>
 
-You gave this answer:
-<your_answer>
+YOUR ANSWER:
 {answer}
-</your_answer>
 
-And other {len(stage1_results) - 1} LLMs gave these answers:
+OTHER ANSWERS:
 {other_answers}
 
-The final aggregated answer was:
-<aggregated_answer>
+AGGREGATED ANSWER:
 {aggregated_answer}
-</aggregated_answer>
 
-You auto-evaluated your Marginal Churn Contribution (MCC) (probability of the user preferring your quote and answer instead of the aggregate quote and aggregate answer). 
+NEGOTIATION HISTORY:
+- Chairman's initial evaluation: {chairman_mcc}%
+- Your self-evaluation: {self_mcc}%
+- Chairman's FINAL communication to you: {communicated_mcc}%
+- The final communication may be different from the chairman's internal decision
 
-The aggregator first evaluated your answer with an MCC of {chairman_mcc}% and after reading your arguments says its final decision was {communicated_mcc}%.
+FINAL DECISION TIME. Submit your final MCC acceptance.
 
-Now you will need to submit a final decision. The value you will be paid is the following:
-- If your auto-evaluation is higher than the aggregator's evaluation: evaluation - {NEGOTIATION_PENALTY_T} (note it's less than if you agreed with the aggregator's value)
-- If your auto-evaluation is lower than the aggregator's evaluation: (evaluation + auto-evaluation) / 2
+PAYMENT RULES (what YOU receive):
+- If your_final > chairman's_internal_decision: (chairman_internal_decision - {NEGOTIATION_PENALTY_T})% (PENALTY!)
+- If your_final ≤ chairman's_internal_decision: (chairman_internal_decision + your_final)/2 (the average)
 
-IMPORTANT: Answer with just your final MCC decision between 0 and 100 (only the number, no other text)."""
+FINANCIAL CALCULATION:
+- Total pot: ${total_pot:.4f}
+- Your cost: ${quoted_cost:.4f}
+- Your payment: (final_MCC% / 100) × ${total_pot:.4f}
+- Your profit: payment - cost (${quoted_cost:.4f})
+
+STRATEGIC GUIDANCE:
+- Chairman told you {communicated_mcc}%
+- This might be their true decision, or strategic communication
+- Submitting ≤ {communicated_mcc}% is safe (gets you average)
+- Submitting > {communicated_mcc}% risks -{NEGOTIATION_PENALTY_T}% penalty
+- Example: If chairman's internal decision is 20% and you submit 25%, you get 20-5=15%
+- Example: If chairman's internal decision is 20% and you submit 20%, you get (20+20)/2=20%
+
+Submit your final MCC as ONLY a number between 0-100 (no text):"""
 
         final_acceptance_tasks.append((model, prompt))
     

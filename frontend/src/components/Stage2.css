@@ -1,12 +1,98 @@
 .stage2 {
-  background: #fafafa;
+  margin: 24px 0;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #000000;
 }
 
-.stage2 h4 {
-  margin: 20px 0 8px 0;
-  color: #333;
-  font-size: 14px;
+.stage-title {
+  margin: 0 0 16px 0;
+  color: #002fa7;
+  font-size: 16px;
   font-weight: 600;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  padding: 8px 16px;
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px 6px 0 0;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  background: #f0f0f0;
+  color: #333;
+  border-color: #4a90e2;
+}
+
+.tab.active {
+  background: #ffffff;
+  border-color: #002fa7;
+  color: #002fa7;
+  font-weight: 600;
+  border-bottom-color: transparent;
+}
+
+.tab-content {
+  background: #ffffff;
+  border: 1px solid #000000;
+  border-radius: 0 8px 8px 8px;
+  padding: 20px;
+}
+
+.model-name {
+  font-size: 14px;
+  color: #000000;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #000000;
+}
+
+.response-text {
+  color: #000000;
+  line-height: 1.6;
+}
+
+.markdown-content {
+  font-size: 14px;
+}
+
+.markdown-content p {
+  margin: 12px 0;
+}
+
+.markdown-content code {
+  background: #ffffff;
+  border: 1px solid #000000;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+
+.markdown-content pre {
+  background: #ffffff;
+  border: 1px solid #000000;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background: none;
+  padding: 0;
 }
 
 .stage2 h4:first-of-type {
@@ -15,22 +101,22 @@
 
 .stage-description {
   margin: 0 0 12px 0;
-  color: #666;
-  font-size: 13px;
+  color: #000000;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .aggregate-rankings {
-  background: #f0f7ff;
+  background: #ffffff;
   padding: 16px;
   border-radius: 8px;
   margin-bottom: 20px;
-  border: 2px solid #d0e7ff;
+  border: 2px solid #002fa7;
 }
 
 .aggregate-rankings h4 {
   margin: 0 0 12px 0;
-  color: #2a7ae2;
+  color: #002fa7;
   font-size: 15px;
 }
 
@@ -47,11 +133,11 @@
   padding: 10px;
   background: #ffffff;
   border-radius: 6px;
-  border: 1px solid #d0e7ff;
+  border: 1px solid #002fa7;
 }
 
 .rank-position {
-  color: #2a7ae2;
+  color: #002fa7;
   font-weight: 700;
   font-size: 16px;
   min-width: 35px;
@@ -59,15 +145,15 @@
 
 .rank-model {
   flex: 1;
-  color: #333;
+  color: #000000;
   font-family: monospace;
   font-size: 14px;
   font-weight: 500;
 }
 
 .rank-score {
-  color: #666;
-  font-size: 13px;
+  color: #000000;
+  font-size: 14px;
   font-family: monospace;
 }
 
@@ -81,24 +167,24 @@
 .stage2 .tab {
   padding: 8px 16px;
   background: #ffffff;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #000000;
   border-radius: 6px 6px 0 0;
-  color: #666;
+  color: #000000;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .stage2 .tab:hover {
-  background: #f0f0f0;
-  color: #333;
-  border-color: #4a90e2;
+  background: #ffffff;
+  color: #376fff;
+  border-color: #376fff;
 }
 
 .stage2 .tab.active {
   background: #ffffff;
-  color: #4a90e2;
-  border-color: #4a90e2;
+  color: #002fa7;
+  border-color: #002fa7;
   border-bottom-color: #ffffff;
   font-weight: 600;
 }
@@ -107,19 +193,19 @@
   background: #ffffff;
   padding: 16px;
   border-radius: 6px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #000000;
   margin-bottom: 20px;
 }
 
 .ranking-model {
-  color: #888;
-  font-size: 12px;
+  color: #000000;
+  font-size: 14px;
   font-family: monospace;
   margin-bottom: 12px;
 }
 
 .ranking-content {
-  color: #333;
+  color: #000000;
   line-height: 1.6;
   font-size: 14px;
 }
@@ -127,27 +213,27 @@
 .parsed-ranking {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 2px solid #e0e0e0;
+  border-top: 2px solid #000000;
 }
 
 .parsed-ranking strong {
-  color: #2a7ae2;
-  font-size: 13px;
+  color: #002fa7;
+  font-size: 14px;
 }
 
 .parsed-ranking ol {
   margin: 8px 0 0 0;
   padding-left: 24px;
-  color: #333;
+  color: #000000;
 }
 
 .parsed-ranking li {
   margin: 4px 0;
   font-family: monospace;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .rank-count {
-  color: #999;
-  font-size: 12px;
+  color: #000000;
+  font-size: 14px;
 }

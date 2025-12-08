@@ -1,0 +1,147 @@
+.stage4 {
+  margin: 24px 0;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #002fa7;
+}
+
+.evaluations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.evaluation-card {
+  background: #ffffff;
+  border: 1px solid #000000;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.evaluation-card:hover {
+  border-color: #376fff;
+  box-shadow: none;
+}
+
+.evaluation-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.eval-model {
+  font-weight: 600;
+  color: #000000;
+  font-size: 15px;
+  min-width: 150px;
+}
+
+.eval-mccs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.mcc-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.mcc-badge.chairman {
+  background: #ffffff;
+  border: 1px solid #002fa7;
+}
+
+.mcc-badge.self {
+  background: #ffffff;
+  border: 1px solid #376fff;
+}
+
+.mcc-label {
+  color: #000000;
+  font-size: 14px;
+}
+
+.mcc-val {
+  font-weight: 700;
+  color: #000000;
+}
+
+.mcc-badge.chairman .mcc-val {
+  color: #002fa7;
+}
+
+.arrow {
+  color: #000000;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.expand-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #002fa7;
+  color: #002fa7;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background: #ffffff;
+  border-color: #376fff;
+  color: #376fff;
+}
+
+.evaluation-content {
+  padding: 0 16px 16px;
+  border-top: 1px solid #000000;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.arguments-section {
+  margin-top: 12px;
+}
+
+.content-heading {
+  color: #002fa7;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.arguments-text {
+  color: #000000;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}

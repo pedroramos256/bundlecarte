@@ -72,14 +72,22 @@ function App() {
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
-        stage1: null,
-        stage2: null,
-        stage3: null,
+        stage1: null, // Token budget quotes
+        stage2: null, // LLM responses
+        stage3: null, // Chairman evaluation
+        stage4: null, // LLM self-evaluations
+        stage5: null, // Chairman final decision
+        stage6: null, // LLM final acceptance
+        stage7: null, // Final payments
         metadata: null,
         loading: {
           stage1: false,
           stage2: false,
           stage3: false,
+          stage4: false,
+          stage5: false,
+          stage6: false,
+          stage7: false,
         },
       };
 
@@ -92,7 +100,7 @@ function App() {
       // Send message with streaming
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
         switch (eventType) {
-          case 'stage1_start':
+          case 'stage0_start':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
@@ -101,7 +109,7 @@ function App() {
             });
             break;
 
-          case 'stage1_complete':
+          case 'stage0_complete':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
@@ -111,7 +119,7 @@ function App() {
             });
             break;
 
-          case 'stage2_start':
+          case 'stage1_start':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
@@ -120,18 +128,17 @@ function App() {
             });
             break;
 
-          case 'stage2_complete':
+          case 'stage1_complete':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage2 = event.data;
-              lastMsg.metadata = event.metadata;
               lastMsg.loading.stage2 = false;
               return { ...prev, messages };
             });
             break;
 
-          case 'stage3_start':
+          case 'stage2_start':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
@@ -140,12 +147,133 @@ function App() {
             });
             break;
 
+          case 'stage2_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Transform chairman evaluation data structure
+              const evalData = event.data;
+              const initialMccsArray = Object.entries(evalData.chairman_mccs || {}).map(([model, mcc]) => ({
+                model,
+                mcc
+              }));
+              
+              lastMsg.stage3 = {
+                model: evalData.model,
+                aggregated_answer: evalData.aggregated_answer,
+                initial_mccs: initialMccsArray
+              };
+              lastMsg.loading.stage3 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage3_start':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.stage4 = true;
+              return { ...prev, messages };
+            });
+            break;
+
           case 'stage3_complete':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage3 = event.data;
-              lastMsg.loading.stage3 = false;
+              lastMsg.stage4 = event.data;
+              lastMsg.loading.stage4 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage4_start':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.stage5 = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage4_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Transform chairman decision data structure
+              const decisionData = event.data;
+              const decisionsArray = Object.entries(decisionData.decisions || {}).map(([model, decision]) => ({
+                model,
+                chairman_decision: decision,
+                communication_value: decisionData.communications?.[model] || decision
+              }));
+              
+              lastMsg.stage5 = {
+                model: decisionData.model,
+                decisions: decisionsArray
+              };
+              lastMsg.loading.stage5 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage5_start':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.stage6 = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage5_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Add chairman communication values from stage5 data
+              const llmFinalsArray = event.data.map(llmFinal => ({
+                model: llmFinal.model,
+                chairman_communication: lastMsg.stage5?.decisions?.find(d => d.model === llmFinal.model)?.communication_value || 0,
+                llm_final_decision: llmFinal.llm_final_decision
+              }));
+              
+              lastMsg.stage6 = llmFinalsArray;
+              lastMsg.loading.stage6 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage6_start':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.stage7 = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage6_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Transform payment data structure to array format
+              const paymentData = event.data;
+              const paymentsArray = Object.values(paymentData.per_model_payments || {}).map(p => ({
+                model: p.model,
+                chairman_decision: p.chairman_decision_mcc,
+                llm_final_decision: p.llm_final_decision_mcc,
+                payment_mcc: p.llm_receives_mcc,
+                revenue: p.payment_amount_usd,
+                cost: p.quoted_cost,
+                profit_loss: p.profit_usd
+              }));
+              
+              lastMsg.stage7 = paymentsArray;
+              lastMsg.loading.stage7 = false;
               return { ...prev, messages };
             });
             break;

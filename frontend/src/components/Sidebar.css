@@ -1,39 +1,85 @@
 .sidebar {
   width: 260px;
-  background: #f8f8f8;
-  border-right: 1px solid #e0e0e0;
+  background: #ffffff;
+  border-right: 1px solid #000000;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: transform 0.3s ease;
+}
+
+.sidebar.collapsed {
+  transform: translateX(-100%);
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 999;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+}
+
+.mobile-menu-toggle {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
+  background: #002fa7;
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 24px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 998;
+}
+
+.sidebar.collapsed + .sidebar-overlay {
+  display: none !important;
 }
 
 .sidebar-header {
   padding: 16px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #000000;
 }
 
 .sidebar-header h1 {
   font-size: 18px;
   margin: 0 0 12px 0;
-  color: #333;
+  color: #000000;
 }
 
 .new-conversation-btn {
   width: 100%;
   padding: 10px;
-  background: #4a90e2;
-  border: 1px solid #4a90e2;
+  background: #002fa7;
+  border: 1px solid #002fa7;
   border-radius: 6px;
   color: #fff;
   cursor: pointer;
   font-size: 14px;
   transition: background 0.2s;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .new-conversation-btn:hover {
-  background: #357abd;
-  border-color: #357abd;
+  background: #376fff;
+  border-color: #376fff;
 }
 
 .conversation-list {
@@ -45,7 +91,7 @@
 .no-conversations {
   padding: 16px;
   text-align: center;
-  color: #999;
+  color: #000000;
   font-size: 14px;
 }
 
@@ -58,21 +104,74 @@
 }
 
 .conversation-item:hover {
-  background: #f0f0f0;
+  background: #ffffff;
+  border: 1px solid #376fff;
 }
 
 .conversation-item.active {
-  background: #e8f0fe;
-  border: 1px solid #4a90e2;
+  background: #ffffff;
+  border: 1px solid #002fa7;
 }
 
 .conversation-title {
-  color: #333;
+  color: #000000;
   font-size: 14px;
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .conversation-meta {
-  color: #999;
-  font-size: 12px;
+  color: #000000;
+  font-size: 14px;
+}
+
+/* Tablet and up: always show sidebar */
+@media (min-width: 768px) {
+  .mobile-menu-toggle {
+    display: none !important;
+  }
+  
+  .sidebar-overlay {
+    display: none !important;
+  }
+  
+  .sidebar {
+    position: static;
+    transform: translateX(0);
+  }
+  
+  .sidebar.collapsed {
+    position: static;
+    transform: translateX(0);
+  }
+}
+
+/* Mobile: show menu button and make sidebar overlay */
+@media (max-width: 767px) {
+  .mobile-menu-toggle {
+    display: flex;
+  }
+  
+  .sidebar {
+    position: fixed;
+    height: 100vh;
+    top: 0;
+    left: 0;
+    z-index: 999;
+  }
+  
+  .sidebar-header {
+    padding-top: 76px;
+  }
+  
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+  
+  .sidebar-overlay {
+    display: block;
+  }
 }

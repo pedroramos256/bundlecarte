@@ -1,20 +1,77 @@
 import ReactMarkdown from 'react-markdown';
 import './Stage3.css';
 
-export default function Stage3({ finalResponse }) {
-  if (!finalResponse) {
+export default function Stage3({ chairmanEval }) {
+  if (!chairmanEval) {
+    return null;
+  }
+
+  const { aggregated_answer, initial_mccs, model, response } = chairmanEval;
+
+  // Handle old format (just has 'response' field)
+  if (response && !aggregated_answer) {
+    return (
+      <div className="stage stage3">
+        <h3 className="stage-title">Stage 3: Chairman's Aggregated Answer</h3>
+        
+        {model && (
+          <div className="chairman-model">
+            <span className="chairman-label">Chairman:</span>
+            <span className="chairman-value">{model.split('/')[1] || model}</span>
+          </div>
+        )}
+
+        <div className="aggregated-section">
+          <div className="aggregated-answer markdown-content">
+            <ReactMarkdown>{response}</ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if we have the expected new data structure
+  if (!aggregated_answer || !initial_mccs || !Array.isArray(initial_mccs)) {
     return null;
   }
 
   return (
     <div className="stage stage3">
-      <h3 className="stage-title">Stage 3: Final Council Answer</h3>
-      <div className="final-response">
-        <div className="chairman-label">
-          Chairman: {finalResponse.model.split('/')[1] || finalResponse.model}
+      <h3 className="stage-title">Stage 3: Chairman's Evaluation</h3>
+      
+      <div className="chairman-model">
+        <span className="chairman-label">Chairman:</span>
+        <span className="chairman-value">{model.split('/')[1] || model}</span>
+      </div>
+
+      <div className="aggregated-section">
+        <h4 className="section-heading">Aggregated Answer</h4>
+        <div className="aggregated-answer markdown-content">
+          <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
         </div>
-        <div className="final-text markdown-content">
-          <ReactMarkdown>{finalResponse.response}</ReactMarkdown>
+      </div>
+
+      <div className="mcc-section">
+        <h4 className="section-heading">Initial MCC Assignments</h4>
+        <div className="mcc-bars">
+          {initial_mccs.map((item, index) => (
+            <div key={index} className="mcc-item">
+              <div className="mcc-header">
+                <span className="mcc-model">{item.model.split('/')[1] || item.model}</span>
+                <span className="mcc-percentage">{item.mcc}%</span>
+              </div>
+              <div className="mcc-bar-container">
+                <div 
+                  className="mcc-bar-fill" 
+                  style={{ width: `${item.mcc}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mcc-total">
+          Total: {initial_mccs.reduce((sum, item) => sum + item.mcc, 0)}%
         </div>
       </div>
     </div>

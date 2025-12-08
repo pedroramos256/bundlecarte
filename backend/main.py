@@ -70,18 +70,29 @@ async def test_stage0_quotes(request: SendMessageRequest):
     Test endpoint for Stage 0: Token Budget Quoting.
     Returns quotes from all LLMs for a given prompt.
     """
-    quotes = await stage0_collect_quotes(request.content)
-    
-    # Calculate total cost
-    total_cost = sum(q["estimated_cost"] for q in quotes)
-    
-    return {
-        "stage": "stage0_quotes",
-        "prompt": request.content,
-        "quotes": quotes,
-        "total_estimated_cost": total_cost,
-        "currency": "USD"
-    }
+    print(f"\n{'='*80}")
+    print(f"[ENDPOINT] Received request for stage0 quotes")
+    print(f"[ENDPOINT] Content: {request.content}")
+    print(f"{'='*80}\n")
+    try:
+        quotes = await stage0_collect_quotes(request.content)
+        
+        # Calculate total cost
+        total_cost = sum(q["estimated_cost"] for q in quotes)
+        
+        return {
+            "stage": "stage0_quotes",
+            "prompt": request.content,
+            "quotes": quotes,
+            "total_estimated_cost": total_cost,
+            "currency": "USD"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
@@ -132,15 +143,16 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     # Run the 6-stage auction council process
     results = await run_full_council(request.content)
 
-    # Add assistant message with all stages (simplified for storage)
+    # Add assistant message with all stages
     storage.add_assistant_message(
         conversation_id,
-        results.get("stage1_answers", []),
-        [],  # No stage2 in new format
-        {
-            "model": results["stage2_chairman_eval"]["model"],
-            "response": results["stage2_chairman_eval"]["aggregated_answer"]
-        }
+        stage0=results.get("stage0_quotes", []),
+        stage1=results.get("stage1_answers", []),
+        stage2=results.get("stage2_chairman_eval", {}),
+        stage3=results.get("stage3_self_evals", []),
+        stage4=results.get("stage4_chairman_decision", {}),
+        stage5=results.get("stage5_llm_finals", []),
+        stage6=results.get("stage6_payments", [])
     )
 
     # Return the complete response with all auction stages
@@ -225,15 +237,16 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 storage.update_conversation_title(conversation_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}}, ensure_ascii=False)}\n\n"
 
-            # Save complete assistant message
+            # Save complete assistant message with all 7 stages
             storage.add_assistant_message(
                 conversation_id,
-                stage1_results,
-                [],
-                {
-                    "model": stage2_chairman_eval["model"],
-                    "response": stage2_chairman_eval["aggregated_answer"]
-                }
+                stage0=stage0_quotes,
+                stage1=stage1_results,
+                stage2=stage2_chairman_eval,
+                stage3=stage3_self_evals,
+                stage4=stage4_chairman_decision,
+                stage5=stage5_llm_finals,
+                stage6=stage6_payments
             )
 
             # Send completion event

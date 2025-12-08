@@ -2,7 +2,7 @@
  * API client for the LLM Council backend.
  */
 
-const API_BASE = 'https://api.bundlecarte.com';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8002';
 
 export const api = {
   /**

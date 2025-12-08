@@ -1,16 +1,94 @@
-.stage {
+.stage1 {
   margin: 24px 0;
   padding: 20px;
-  background: #fafafa;
+  background: #ffffff;
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #002fa7;
 }
 
 .stage-title {
   margin: 0 0 16px 0;
-  color: #333;
+  color: #002fa7;
   font-size: 16px;
   font-weight: 600;
+}
+
+.quotes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.quote-card {
+  background: #ffffff;
+  border: 1px solid #000000;
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.2s;
+}
+
+.quote-card:hover {
+  border-color: #376fff;
+  box-shadow: none;
+}
+
+.quote-model {
+  font-weight: 600;
+  font-size: 15px;
+  color: #002fa7;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #000000;
+}
+
+.quote-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quote-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.quote-label {
+  color: #000000;
+}
+
+.quote-value {
+  font-weight: 600;
+  color: #000000;
+}
+
+.quote-value.cost-highlight {
+  color: #002fa7;
+  font-size: 16px;
+}
+
+.total-cost {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #002fa7;
+}
+
+.total-label {
+  font-weight: 600;
+  color: #002fa7;
+  font-size: 15px;
+}
+
+.total-value {
+  font-weight: 700;
+  color: #002fa7;
+  font-size: 18px;
 }
 
 .tabs {
@@ -23,24 +101,24 @@
 .tab {
   padding: 8px 16px;
   background: #ffffff;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #000000;
   border-radius: 6px 6px 0 0;
-  color: #666;
+  color: #000000;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .tab:hover {
-  background: #f0f0f0;
-  color: #333;
-  border-color: #4a90e2;
+  background: #ffffff;
+  color: #376fff;
+  border-color: #376fff;
 }
 
 .tab.active {
   background: #ffffff;
-  color: #4a90e2;
-  border-color: #4a90e2;
+  color: #002fa7;
+  border-color: #002fa7;
   border-bottom-color: #ffffff;
   font-weight: 600;
 }
@@ -49,17 +127,17 @@
   background: #ffffff;
   padding: 16px;
   border-radius: 6px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #000000;
 }
 
 .model-name {
-  color: #888;
-  font-size: 12px;
+  color: #000000;
+  font-size: 14px;
   margin-bottom: 12px;
   font-family: monospace;
 }
 
 .response-text {
-  color: #333;
+  color: #000000;
   line-height: 1.6;
 }

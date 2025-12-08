@@ -129,18 +129,26 @@ def add_user_message(conversation_id: str, content: str):
 
 def add_assistant_message(
     conversation_id: str,
-    stage1: List[Dict[str, Any]],
-    stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage0: List[Dict[str, Any]] = None,
+    stage1: List[Dict[str, Any]] = None,
+    stage2: Dict[str, Any] = None,
+    stage3: List[Dict[str, Any]] = None,
+    stage4: Dict[str, Any] = None,
+    stage5: List[Dict[str, Any]] = None,
+    stage6: List[Dict[str, Any]] = None
 ):
     """
-    Add an assistant message with all 3 stages to a conversation.
+    Add an assistant message with all 7 auction stages to a conversation.
 
     Args:
         conversation_id: Conversation identifier
-        stage1: List of individual model responses
-        stage2: List of model rankings
-        stage3: Final synthesized response
+        stage0: Token budget quotes (Stage 1 in UI)
+        stage1: LLM responses (Stage 2 in UI)
+        stage2: Chairman evaluation with MCCs (Stage 3 in UI)
+        stage3: LLM self-evaluations (Stage 4 in UI)
+        stage4: Chairman final decisions (Stage 5 in UI)
+        stage5: LLM final acceptance (Stage 6 in UI)
+        stage6: Final payments (Stage 7 in UI)
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
@@ -148,9 +156,13 @@ def add_assistant_message(
 
     conversation["messages"].append({
         "role": "assistant",
-        "stage1": stage1,
-        "stage2": stage2,
-        "stage3": stage3
+        "stage1": stage0 or [],  # Token quotes
+        "stage2": stage1 or [],  # LLM responses
+        "stage3": stage2 or {},  # Chairman evaluation
+        "stage4": stage3 or [],  # LLM self-evaluations
+        "stage5": stage4 or {},  # Chairman final decisions
+        "stage6": stage5 or [],  # LLM final acceptance
+        "stage7": stage6 or []   # Final payments
     })
 
     save_conversation(conversation)
