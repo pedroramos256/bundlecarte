@@ -39,7 +39,9 @@ async def query_model(
 
     try:
         print(f"[OPENROUTER] Querying {model} with max_tokens={max_tokens}, timeout={timeout}s")
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # Create timeout config with explicit connect and read timeouts
+        timeout_config = httpx.Timeout(timeout=timeout, connect=30.0, read=timeout, write=30.0)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             response = await client.post(
                 OPENROUTER_API_URL,
                 headers=headers,
@@ -64,6 +66,9 @@ async def query_model(
                 'reasoning_details': message.get('reasoning_details')
             }
 
+    except httpx.TimeoutException as e:
+        print(f"[OPENROUTER] TIMEOUT querying model {model} after {timeout}s: {e}")
+        return None
     except Exception as e:
         print(f"[OPENROUTER] ERROR querying model {model}: {type(e).__name__}: {e}")
         import traceback
