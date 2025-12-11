@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
@@ -71,7 +71,7 @@ class Conversation(BaseModel):
     created_at: str
     title: str
     status: str = "active"
-    current_stage: int = None
+    current_stage: Optional[int] = None
     messages: List[Dict[str, Any]]
 
 
