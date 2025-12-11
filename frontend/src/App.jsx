@@ -133,7 +133,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage1 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage1 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -142,8 +145,11 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage1 = event.data;
-              lastMsg.loading.stage1 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.stage1 = event.data;
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage1 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -152,7 +158,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage2 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage2 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -161,8 +170,11 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage2 = event.data;
-              lastMsg.loading.stage2 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.stage2 = event.data;
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage2 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -171,7 +183,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage3 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage3 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -180,20 +195,22 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              
-              // Transform chairman evaluation data structure
-              const evalData = event.data;
-              const initialMccsArray = Object.entries(evalData.chairman_mccs || {}).map(([model, mcc]) => ({
-                model,
-                mcc
-              }));
-              
-              lastMsg.stage3 = {
-                model: evalData.model,
-                aggregated_answer: evalData.aggregated_answer,
-                initial_mccs: initialMccsArray
-              };
-              lastMsg.loading.stage3 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                // Transform chairman evaluation data structure
+                const evalData = event.data;
+                const initialMccsArray = Object.entries(evalData.chairman_mccs || {}).map(([model, mcc]) => ({
+                  model,
+                  mcc
+                }));
+                
+                lastMsg.stage3 = {
+                  model: evalData.model,
+                  aggregated_answer: evalData.aggregated_answer,
+                  initial_mccs: initialMccsArray
+                };
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage3 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -202,7 +219,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage4 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage4 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -211,8 +231,11 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage4 = event.data;
-              lastMsg.loading.stage4 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.stage4 = event.data;
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage4 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -221,7 +244,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage5 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage5 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -230,20 +256,22 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              
-              // Transform chairman decision data structure
-              const decisionData = event.data;
-              const decisionsArray = Object.entries(decisionData.decisions || {}).map(([model, decision]) => ({
-                model,
-                chairman_decision: decision,
-                communication_value: decisionData.communications?.[model] || decision
-              }));
-              
-              lastMsg.stage5 = {
-                model: decisionData.model,
-                decisions: decisionsArray
-              };
-              lastMsg.loading.stage5 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                // Transform chairman decision data structure
+                const decisionData = event.data;
+                const decisionsArray = Object.entries(decisionData.decisions || {}).map(([model, decision]) => ({
+                  model,
+                  chairman_decision: decision,
+                  communication_value: decisionData.communications?.[model] || decision
+                }));
+                
+                lastMsg.stage5 = {
+                  model: decisionData.model,
+                  decisions: decisionsArray
+                };
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage5 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -252,7 +280,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage6 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage6 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -261,16 +292,18 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              
-              // Add chairman communication values from stage5 data
-              const llmFinalsArray = event.data.map(llmFinal => ({
-                model: llmFinal.model,
-                chairman_communication: lastMsg.stage5?.decisions?.find(d => d.model === llmFinal.model)?.communication_value || 0,
-                llm_final_decision: llmFinal.llm_final_decision
-              }));
-              
-              lastMsg.stage6 = llmFinalsArray;
-              lastMsg.loading.stage6 = false;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                // Add chairman communication values from stage5 data
+                const llmFinalsArray = event.data.map(llmFinal => ({
+                  model: llmFinal.model,
+                  chairman_communication: lastMsg.stage5?.decisions?.find(d => d.model === llmFinal.model)?.communication_value || 0,
+                  llm_final_decision: llmFinal.llm_final_decision
+                }));
+                
+                lastMsg.stage6 = llmFinalsArray;
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage6 = false;
+              }
               return { ...prev, messages };
             });
             break;
@@ -279,7 +312,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage7 = true;
+              if (lastMsg && lastMsg.role === 'assistant') {
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage7 = true;
+              }
               return { ...prev, messages };
             });
             break;
@@ -288,21 +324,23 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              
-              // Transform payment data structure to array format
-              const paymentData = event.data;
-              const paymentsArray = Object.values(paymentData.per_model_payments || {}).map(p => ({
-                model: p.model,
-                chairman_decision: p.chairman_decision_mcc,
-                llm_final_decision: p.llm_final_decision_mcc,
-                payment_mcc: p.llm_receives_mcc,
-                revenue: p.payment_amount_usd,
+              if (lastMsg && lastMsg.role === 'assistant') {
+                // Transform payment data structure to array format
+                const paymentData = event.data;
+                const paymentsArray = Object.values(paymentData.per_model_payments || {}).map(p => ({
+                  model: p.model,
+                  chairman_decision: p.chairman_decision_mcc,
+                  llm_final_decision: p.llm_final_decision_mcc,
+                  payment_mcc: p.llm_receives_mcc,
+                  revenue: p.payment_amount_usd,
                 cost: p.quoted_cost,
                 profit_loss: p.profit_usd
               }));
               
-              lastMsg.stage7 = paymentsArray;
-              lastMsg.loading.stage7 = false;
+                lastMsg.stage7 = paymentsArray;
+                if (!lastMsg.loading) lastMsg.loading = {};
+                lastMsg.loading.stage7 = false;
+              }
               return { ...prev, messages };
             });
             break;
