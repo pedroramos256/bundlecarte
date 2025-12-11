@@ -100,31 +100,46 @@ export const api = {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let lastActivity = Date.now();
+    
+    // Set up a timeout to detect stalled connections
+    const activityTimeout = setInterval(() => {
+      if (Date.now() - lastActivity > 60000) {  // 60 second timeout
+        console.warn('SSE connection appears stalled, no data for 60s');
+        clearInterval(activityTimeout);
+        reader.cancel();
+      }
+    }, 5000);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      
-      // Keep the last incomplete line in the buffer
-      buffer = lines.pop() || '';
+        lastActivity = Date.now();
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
-          if (data) {
-            try {
-              const event = JSON.parse(data);
-              onEvent(event.type, event);
-            } catch (e) {
-              console.error('Failed to parse SSE event:', e);
-              console.error('Problematic data:', data.substring(0, 200));
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data) {
+              try {
+                const event = JSON.parse(data);
+                onEvent(event.type, event);
+              } catch (e) {
+                console.error('Failed to parse SSE event:', e);
+                console.error('Problematic data:', data.substring(0, 200));
+              }
             }
           }
         }
       }
+    } finally {
+      clearInterval(activityTimeout);
     }
   },
 };

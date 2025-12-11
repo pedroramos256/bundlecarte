@@ -36,6 +36,20 @@ function App() {
     }
   }, [currentConversation?.id, currentConversation?.status]);
 
+  // Handle page visibility changes (screen sleep/wake)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && currentConversationId) {
+        // Page became visible - reload conversation to get latest state
+        console.log('Page visible again, reloading conversation...');
+        loadConversation(currentConversationId);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentConversationId]);
+
   const loadConversations = async () => {
     try {
       const convs = await api.listConversations();
@@ -367,6 +381,13 @@ function App() {
       });
     } catch (error) {
       console.error('Failed to send message:', error);
+      
+      // If error occurred during streaming, reload conversation to get actual state
+      if (currentConversationId) {
+        console.log('Stream interrupted, reloading conversation state...');
+        setTimeout(() => loadConversation(currentConversationId), 1000);
+      }
+      
       // Remove optimistic messages on error
       setCurrentConversation((prev) => ({
         ...prev,

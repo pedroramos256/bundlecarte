@@ -345,6 +345,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable proxy buffering
         }
     )
 
