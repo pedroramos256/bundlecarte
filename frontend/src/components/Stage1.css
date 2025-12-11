@@ -9,7 +9,7 @@
 .stage-title {
   margin: 0 0 16px 0;
   color: #002fa7;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -35,7 +35,7 @@
 
 .quote-model {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 19px;
   color: #002fa7;
   margin-bottom: 12px;
   padding-bottom: 8px;
@@ -52,7 +52,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .quote-label {
@@ -66,7 +66,7 @@
 
 .quote-value.cost-highlight {
   color: #002fa7;
-  font-size: 16px;
+  font-size: 20px;
 }
 
 .total-cost {
@@ -82,13 +82,13 @@
 .total-label {
   font-weight: 600;
   color: #002fa7;
-  font-size: 15px;
+  font-size: 19px;
 }
 
 .total-value {
   font-weight: 700;
   color: #002fa7;
-  font-size: 18px;
+  font-size: 22px;
 }
 
 .tabs {

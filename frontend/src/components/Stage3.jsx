@@ -6,7 +6,7 @@ export default function Stage3({ chairmanEval }) {
     return null;
   }
 
-  const { aggregated_answer, initial_mccs, model, response } = chairmanEval;
+  const { aggregated_answer, initial_mccs, chairman_mccs, model, response } = chairmanEval;
 
   // Handle old format (just has 'response' field)
   if (response && !aggregated_answer) {
@@ -24,6 +24,52 @@ export default function Stage3({ chairmanEval }) {
         <div className="aggregated-section">
           <div className="aggregated-answer markdown-content">
             <ReactMarkdown>{response}</ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle new format with chairman_mccs dictionary
+  if (aggregated_answer && chairman_mccs) {
+    return (
+      <div className="stage stage3">
+        <h3 className="stage-title">Stage 3: Chairman's Evaluation</h3>
+        
+        <div className="chairman-model">
+          <span className="chairman-label">Chairman:</span>
+          <span className="chairman-value">{model ? (model.split('/')[1] || model) : 'Chairman'}</span>
+        </div>
+
+        <div className="aggregated-section">
+          <h4 className="section-heading">Aggregated Answer</h4>
+          <div className="aggregated-answer markdown-content">
+            <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
+          </div>
+        </div>
+
+        <div className="mcc-section">
+          <h4 className="section-heading">Initial MCC Assignments</h4>
+          <div className="mcc-bars">
+            {Object.entries(chairman_mccs).map(([mName, score]) => (
+              <div key={mName} className="mcc-item">
+                <div className="mcc-header">
+                  <span className="mcc-model">{mName.split('/').pop()}</span>
+                  <span className="mcc-percentage">{score}%</span>
+                </div>
+                <div className="mcc-bar-container">
+                  <div 
+                    className="mcc-bar" 
+                    style={{ 
+                      width: `${score}%`,
+                      height: '100%',
+                      background: '#002fa7',
+                      borderRadius: '4px'
+                    }} 
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

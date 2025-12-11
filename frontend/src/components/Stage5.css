@@ -22,7 +22,7 @@
   background: #ffffff;
   border-bottom: 2px solid #002fa7;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
   color: #002fa7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -55,7 +55,7 @@
 .model-name {
   font-weight: 600;
   color: #000000;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .decision-value {
@@ -66,7 +66,7 @@
   border-radius: 6px;
   font-weight: 700;
   color: #002fa7;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .communication-value {
@@ -77,7 +77,7 @@
   border-radius: 6px;
   font-weight: 600;
   color: #376fff;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .decisions-note {
@@ -85,7 +85,7 @@
   background: #ffffff;
   border: 1px solid #000000;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
   color: #000000;
   line-height: 1.5;
 }

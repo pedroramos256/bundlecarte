@@ -22,7 +22,7 @@
   background: #ffffff;
   border-bottom: 2px solid #002fa7;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
   color: #002fa7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -61,24 +61,24 @@
 .model-name {
   font-weight: 600;
   color: #000000;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .value {
   font-weight: 600;
   color: #000000;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .payment-highlight {
   color: #002fa7 !important;
   font-weight: 700 !important;
-  font-size: 15px !important;
+  font-size: 17px !important;
 }
 
 .profit {
   font-weight: 700 !important;
-  font-size: 15px !important;
+  font-size: 17px !important;
 }
 
 .profit.positive {

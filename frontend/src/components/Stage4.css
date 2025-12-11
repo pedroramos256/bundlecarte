@@ -37,7 +37,7 @@
 .eval-model {
   font-weight: 600;
   color: #000000;
-  font-size: 15px;
+  font-size: 19px;
   min-width: 150px;
 }
 
@@ -54,7 +54,7 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .mcc-badge.chairman {
@@ -69,7 +69,7 @@
 
 .mcc-label {
   color: #000000;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .mcc-val {
@@ -83,7 +83,7 @@
 
 .arrow {
   color: #000000;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
 }
 
@@ -94,7 +94,7 @@
   background: #ffffff;
   border: 1px solid #002fa7;
   color: #002fa7;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
   cursor: pointer;
   display: flex;

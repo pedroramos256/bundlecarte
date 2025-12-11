@@ -34,6 +34,8 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
         "id": conversation_id,
         "created_at": datetime.utcnow().isoformat(),
         "title": "New Conversation",
+        "status": "active",
+        "current_stage": None,
         "messages": []
     }
 
@@ -181,4 +183,94 @@ def update_conversation_title(conversation_id: str, title: str):
         raise ValueError(f"Conversation {conversation_id} not found")
 
     conversation["title"] = title
+    save_conversation(conversation)
+
+
+def update_conversation_status(conversation_id: str, status: str, current_stage: Optional[int] = None):
+    """
+    Update the status and current stage of a conversation.
+
+    Args:
+        conversation_id: Conversation identifier
+        status: Status (e.g., 'active', 'processing', 'completed', 'error')
+        current_stage: Current stage being processed (0-6) or None if completed
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    conversation["status"] = status
+    conversation["current_stage"] = current_stage
+    save_conversation(conversation)
+
+
+def get_or_create_in_progress_message(conversation_id: str) -> Dict[str, Any]:
+    """
+    Get the last assistant message if it exists and is incomplete, or create a new one.
+    This allows resuming interrupted conversations.
+
+    Args:
+        conversation_id: Conversation identifier
+
+    Returns:
+        The in-progress assistant message dict
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    # Check if last message is an incomplete assistant message
+    if conversation["messages"] and conversation["messages"][-1]["role"] == "assistant":
+        return conversation["messages"][-1]
+    
+    # Create new assistant message
+    message = {
+        "role": "assistant",
+        "stage1": None,  # Token quotes
+        "stage2": None,  # LLM responses
+        "stage3": None,  # Chairman evaluation
+        "stage4": None,  # LLM self-evaluations
+        "stage5": None,  # Chairman final decisions
+        "stage6": None,  # LLM final acceptance
+        "stage7": None   # Final payments
+    }
+    conversation["messages"].append(message)
+    save_conversation(conversation)
+    return message
+
+
+def save_stage_output(conversation_id: str, stage_num: int, data: Any):
+    """
+    Save a specific stage's output to the last assistant message.
+    Creates the assistant message if it doesn't exist.
+
+    Args:
+        conversation_id: Conversation identifier
+        stage_num: Stage number (0-6 for backend stages)
+        data: Stage output data
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    # Get or create in-progress message
+    if conversation["messages"] and conversation["messages"][-1]["role"] == "assistant":
+        message = conversation["messages"][-1]
+    else:
+        message = {
+            "role": "assistant",
+            "stage1": None,
+            "stage2": None,
+            "stage3": None,
+            "stage4": None,
+            "stage5": None,
+            "stage6": None,
+            "stage7": None
+        }
+        conversation["messages"].append(message)
+
+    # Map backend stage (0-6) to UI stage (1-7)
+    stage_key = f"stage{stage_num + 1}"
+    message[stage_key] = data
+    
     save_conversation(conversation)

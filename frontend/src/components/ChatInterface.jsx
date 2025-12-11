@@ -12,10 +12,20 @@ import './ChatInterface.css';
 export default function ChatInterface({
   conversation,
   onSendMessage,
+  onNewConversation,
   isLoading,
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+
+  // Check if conversation is in progress based on status
+  const isInProgress = conversation?.status === 'processing';
+  const currentStage = conversation?.current_stage;
+
+  // Helper to determine if a stage should show loading
+  const isStageLoading = (stageNum) => {
+    return isInProgress && currentStage !== null && currentStage === stageNum;
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -47,6 +57,9 @@ export default function ChatInterface({
         <div className="empty-state">
           <h2>Welcome to Bundle Carte</h2>
           <p>Bundle the best models to get great answers</p>
+          <button className="start-chat-btn" onClick={onNewConversation}>
+            Start new chat
+          </button>
         </div>
       </div>
     );
@@ -77,7 +90,7 @@ export default function ChatInterface({
                   <div className="message-label">Bundle Carte</div>
 
                   {/* Stage 1: Token Budget Quotes */}
-                  {msg.loading?.stage1 && (
+                  {(msg.loading?.stage1 || (index === conversation.messages.length - 1 && isStageLoading(1))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 1: Collecting token budget quotes...</span>
@@ -86,7 +99,7 @@ export default function ChatInterface({
                   {msg.stage1 && msg.stage1.length > 0 && <Stage1 quotes={msg.stage1} />}
 
                   {/* Stage 2: LLM Responses */}
-                  {msg.loading?.stage2 && (
+                  {(msg.loading?.stage2 || (index === conversation.messages.length - 1 && isStageLoading(2))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 2: LLMs generating responses...</span>
@@ -100,7 +113,7 @@ export default function ChatInterface({
                   ) : null}
 
                   {/* Stage 3: Chairman Evaluation */}
-                  {msg.loading?.stage3 && (
+                  {(msg.loading?.stage3 || (index === conversation.messages.length - 1 && isStageLoading(3))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 3: Chairman evaluating and assigning MCCs...</span>
@@ -109,7 +122,7 @@ export default function ChatInterface({
                   {msg.stage3 && Object.keys(msg.stage3).length > 0 && <Stage3 chairmanEval={msg.stage3} />}
 
                   {/* Stage 4: LLM Self-Evaluations */}
-                  {msg.loading?.stage4 && (
+                  {(msg.loading?.stage4 || (index === conversation.messages.length - 1 && isStageLoading(4))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 4: LLMs self-evaluating their contributions...</span>
@@ -118,7 +131,7 @@ export default function ChatInterface({
                   {msg.stage4 && (Array.isArray(msg.stage4) ? msg.stage4.length > 0 : Object.keys(msg.stage4).length > 0) && <Stage4 selfEvaluations={msg.stage4} />}
 
                   {/* Stage 5: Chairman Final Decision */}
-                  {msg.loading?.stage5 && (
+                  {(msg.loading?.stage5 || (index === conversation.messages.length - 1 && isStageLoading(5))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 5: Chairman making final strategic decisions...</span>
@@ -127,7 +140,7 @@ export default function ChatInterface({
                   {msg.stage5 && Object.keys(msg.stage5).length > 0 && <Stage5 chairmanDecision={msg.stage5} />}
 
                   {/* Stage 6: LLM Final Acceptance */}
-                  {msg.loading?.stage6 && (
+                  {(msg.loading?.stage6 || (index === conversation.messages.length - 1 && isStageLoading(6))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 6: LLMs submitting final MCCs...</span>
@@ -136,7 +149,7 @@ export default function ChatInterface({
                   {msg.stage6 && (Array.isArray(msg.stage6) ? msg.stage6.length > 0 : Object.keys(msg.stage6).length > 0) && <Stage6 llmFinals={msg.stage6} chairmanDecision={msg.stage5} />}
 
                   {/* Stage 7: Final Payments */}
-                  {msg.loading?.stage7 && (
+                  {(msg.loading?.stage7 || (index === conversation.messages.length - 1 && isStageLoading(7))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Stage 7: Calculating final payments...</span>
@@ -160,22 +173,27 @@ export default function ChatInterface({
       </div>
 
       <form className="input-form" onSubmit={handleSubmit}>
-        <textarea
-          className="message-input"
-          placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading}
-          rows={3}
-        />
-        <button
-          type="submit"
-          className="send-button"
-          disabled={!input.trim() || isLoading}
-        >
-          Send
-        </button>
+        <div className="input-wrapper">
+          <textarea
+            className="message-input"
+            placeholder="Ask your question..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isLoading}
+            rows={1}
+          />
+          <button
+            type="submit"
+            className="send-button"
+            disabled={!input.trim() || isLoading}
+            aria-label="Send"
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+            </svg>
+          </button>
+        </div>
       </form>
     </div>
   );

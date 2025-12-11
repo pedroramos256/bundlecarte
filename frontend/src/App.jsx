@@ -9,6 +9,7 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [resumedConversations, setResumedConversations] = useState(new Set());
 
   // Load conversations on mount
   useEffect(() => {
@@ -21,6 +22,19 @@ function App() {
       loadConversation(currentConversationId);
     }
   }, [currentConversationId]);
+
+  // Auto-resume in-progress conversations
+  useEffect(() => {
+    if (currentConversation && 
+        currentConversation.status === 'processing' && 
+        !isLoading &&
+        !resumedConversations.has(currentConversation.id)) {
+      // Mark as resumed to prevent re-triggering
+      setResumedConversations(prev => new Set([...prev, currentConversation.id]));
+      // Automatically resume the conversation
+      handleSendMessage(''); // Empty message to trigger resume
+    }
+  }, [currentConversation?.id, currentConversation?.status]);
 
   const loadConversations = async () => {
     try {
@@ -62,40 +76,55 @@ function App() {
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-      }));
+      // Check if this is a resume operation (empty content means resume)
+      const isResume = content === '';
+      
+      // Optimistically add user message to UI (only for new messages, not resume)
+      if (!isResume) {
+        const userMessage = { role: 'user', content };
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: [...prev.messages, userMessage],
+        }));
+      }
 
       // Create a partial assistant message that will be updated progressively
-      const assistantMessage = {
-        role: 'assistant',
-        stage1: null, // Token budget quotes
-        stage2: null, // LLM responses
-        stage3: null, // Chairman evaluation
-        stage4: null, // LLM self-evaluations
-        stage5: null, // Chairman final decision
-        stage6: null, // LLM final acceptance
-        stage7: null, // Final payments
-        metadata: null,
-        loading: {
-          stage1: false,
-          stage2: false,
-          stage3: false,
-          stage4: false,
-          stage5: false,
-          stage6: false,
-          stage7: false,
-        },
-      };
+      // (or get existing one if resuming)
+      let assistantMessage;
+      const lastMessage = currentConversation?.messages[currentConversation.messages.length - 1];
+      
+      if (isResume && lastMessage?.role === 'assistant') {
+        // Resuming - use existing assistant message
+        assistantMessage = lastMessage;
+      } else {
+        // New message - create new assistant message
+        assistantMessage = {
+          role: 'assistant',
+          stage1: null, // Token budget quotes
+          stage2: null, // LLM responses
+          stage3: null, // Chairman evaluation
+          stage4: null, // LLM self-evaluations
+          stage5: null, // Chairman final decision
+          stage6: null, // LLM final acceptance
+          stage7: null, // Final payments
+          metadata: null,
+          loading: {
+            stage1: false,
+            stage2: false,
+            stage3: false,
+            stage4: false,
+            stage5: false,
+            stage6: false,
+            stage7: false,
+          },
+        };
 
-      // Add the partial assistant message
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
-      }));
+        // Add the partial assistant message
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: [...prev.messages, assistantMessage],
+        }));
+      }
 
       // Send message with streaming
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
@@ -320,6 +349,7 @@ function App() {
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
+        onNewConversation={handleNewConversation}
         isLoading={isLoading}
       />
     </div>

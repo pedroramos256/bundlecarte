@@ -9,7 +9,7 @@
 .stage-title {
   margin: 0 0 16px 0;
   color: #002fa7;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -27,7 +27,7 @@
   border-radius: 6px 6px 0 0;
   color: #666;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 18px;
   transition: all 0.2s;
 }
 
@@ -53,7 +53,7 @@
 }
 
 .model-name {
-  font-size: 14px;
+  font-size: 18px;
   color: #000000;
   margin-bottom: 12px;
   padding-bottom: 8px;
@@ -66,11 +66,12 @@
 }
 
 .markdown-content {
-  font-size: 14px;
+  font-size: 22px;
 }
 
 .markdown-content p {
   margin: 12px 0;
+  font-size: 22px;
 }
 
 .markdown-content code {
@@ -79,7 +80,27 @@
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Courier New', monospace;
-  font-size: 14px;
+  font-size: 22px;
+}
+
+.markdown-content h1 {
+  font-size: 26px;
+}
+
+.markdown-content h2 {
+  font-size: 24px;
+}
+
+.markdown-content h3 {
+  font-size: 22px;
+}
+
+.markdown-content li {
+  font-size: 22px;
+}
+
+.markdown-content strong {
+  font-size: 22px;
 }
 
 .markdown-content pre {

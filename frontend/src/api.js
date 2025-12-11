@@ -2,7 +2,7 @@
  * API client for the LLM Council backend.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8002';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001';
 
 export const api = {
   /**

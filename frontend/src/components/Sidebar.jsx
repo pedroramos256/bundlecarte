@@ -43,7 +43,15 @@ export default function Sidebar({
         {!(isCollapsed && window.innerWidth < 768) && (
           <div className="sidebar-header">
             <h1>Bundle Carte</h1>
-            <button className="new-conversation-btn" onClick={onNewConversation}>
+            <button 
+              className="new-conversation-btn" 
+              onClick={() => {
+                onNewConversation();
+                if (window.innerWidth < 768) {
+                  setIsCollapsed(true);
+                }
+              }}
+            >
               + New
             </button>
           </div>

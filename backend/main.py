@@ -55,6 +55,8 @@ class Conversation(BaseModel):
     id: str
     created_at: str
     title: str
+    status: str = "active"
+    current_stage: int = None
     messages: List[Dict[str, Any]]
 
 
@@ -175,13 +177,56 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
     async def event_generator():
         try:
-            # Add user message
-            storage.add_user_message(conversation_id, request.content)
+            # Check if we're resuming an in-progress conversation
+            # (check BEFORE adding user message to avoid duplicates)
+            in_progress_message = None
+            user_content = request.content
+            
+            if conversation["messages"] and conversation["messages"][-1]["role"] == "assistant":
+                # Check if it's incomplete
+                last_msg = conversation["messages"][-1]
+                is_incomplete = any(last_msg.get(f"stage{i}") is None for i in range(1, 8))
+                if is_incomplete:
+                    in_progress_message = last_msg
+                    # Get the user message that started this conversation thread
+                    # Find the last user message before this assistant message
+                    for i in range(len(conversation["messages"]) - 2, -1, -1):
+                        if conversation["messages"][i]["role"] == "user":
+                            user_content = conversation["messages"][i]["content"]
+                            break
+            
+            # If not resuming, add user message and create new assistant message
+            if in_progress_message is None:
+                storage.add_user_message(conversation_id, user_content)
+                in_progress_message = storage.get_or_create_in_progress_message(conversation_id)
+            
+            resume_from_stage = 0
+            
+            # Find which stage to resume from (first incomplete stage)
+            for stage_idx in range(7):
+                stage_key = f"stage{stage_idx + 1}"
+                if in_progress_message.get(stage_key) is None:
+                    resume_from_stage = stage_idx
+                    break
+            else:
+                # All stages complete - this shouldn't happen but handle it
+                resume_from_stage = 7
+            
+            # If resuming, emit already-completed stages
+            if resume_from_stage > 0:
+                for stage_idx in range(resume_from_stage):
+                    stage_key = f"stage{stage_idx + 1}"
+                    stage_data = in_progress_message.get(stage_key)
+                    if stage_data is not None:
+                        yield f"data: {json.dumps({'type': f'stage{stage_idx}_complete', 'data': stage_data}, ensure_ascii=False)}\n\n"
+            
+            # Set status to processing at resume point
+            storage.update_conversation_status(conversation_id, "processing", resume_from_stage)
 
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
+                title_task = asyncio.create_task(generate_conversation_title(user_content))
 
             # Import auction stages
             from .council import (
@@ -190,46 +235,75 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 stage5_llm_final_acceptance, stage6_calculate_final_payments
             )
 
+            # Load saved data for resume
+            stage0_quotes = in_progress_message.get('stage1')
+            stage1_results = in_progress_message.get('stage2')
+            stage2_chairman_eval = in_progress_message.get('stage3')
+            stage3_self_evals = in_progress_message.get('stage4')
+            stage4_chairman_decision = in_progress_message.get('stage5')
+            stage5_llm_finals = in_progress_message.get('stage6')
+
             # Stage 0: Token quotes
-            yield f"data: {json.dumps({'type': 'stage0_start'}, ensure_ascii=False)}\n\n"
-            stage0_quotes = await stage0_collect_quotes(request.content)
-            yield f"data: {json.dumps({'type': 'stage0_complete', 'data': stage0_quotes}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 0:
+                yield f"data: {json.dumps({'type': 'stage0_start'}, ensure_ascii=False)}\n\n"
+                stage0_quotes = await stage0_collect_quotes(user_content)
+                storage.save_stage_output(conversation_id, 0, stage0_quotes)
+                yield f"data: {json.dumps({'type': 'stage0_complete', 'data': stage0_quotes}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 1)
 
             max_tokens_per_model = {q['model']: q['quoted_tokens'] for q in stage0_quotes}
 
             # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'}, ensure_ascii=False)}\n\n"
-            stage1_results = await stage1_collect_responses(request.content, max_tokens_per_model)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 1:
+                yield f"data: {json.dumps({'type': 'stage1_start'}, ensure_ascii=False)}\n\n"
+                stage1_results = await stage1_collect_responses(user_content, max_tokens_per_model)
+                storage.save_stage_output(conversation_id, 1, stage1_results)
+                yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 2)
 
             if not stage1_results:
+                storage.update_conversation_status(conversation_id, "error", None)
                 yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond'}, ensure_ascii=False)}\n\n"
                 return
 
             # Stage 2: Chairman evaluation
-            yield f"data: {json.dumps({'type': 'stage2_start'}, ensure_ascii=False)}\n\n"
-            stage2_chairman_eval = await stage2_evaluate_mccs(request.content, stage0_quotes, stage1_results)
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_chairman_eval}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 2:
+                yield f"data: {json.dumps({'type': 'stage2_start'}, ensure_ascii=False)}\n\n"
+                stage2_chairman_eval = await stage2_evaluate_mccs(user_content, stage0_quotes, stage1_results)
+                storage.save_stage_output(conversation_id, 2, stage2_chairman_eval)
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_chairman_eval}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 3)
 
             # Stage 3: LLM self-evaluation
-            yield f"data: {json.dumps({'type': 'stage3_start'}, ensure_ascii=False)}\n\n"
-            stage3_self_evals = await stage3_llm_self_evaluation(request.content, stage0_quotes, stage1_results, stage2_chairman_eval)
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_self_evals}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 3:
+                yield f"data: {json.dumps({'type': 'stage3_start'}, ensure_ascii=False)}\n\n"
+                stage3_self_evals = await stage3_llm_self_evaluation(user_content, stage0_quotes, stage1_results, stage2_chairman_eval)
+                storage.save_stage_output(conversation_id, 3, stage3_self_evals)
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_self_evals}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 4)
 
             # Stage 4: Chairman final decision
-            yield f"data: {json.dumps({'type': 'stage4_start'}, ensure_ascii=False)}\n\n"
-            stage4_chairman_decision = await stage4_chairman_final_decision(request.content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals)
-            yield f"data: {json.dumps({'type': 'stage4_complete', 'data': stage4_chairman_decision}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 4:
+                yield f"data: {json.dumps({'type': 'stage4_start'}, ensure_ascii=False)}\n\n"
+                stage4_chairman_decision = await stage4_chairman_final_decision(user_content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals)
+                storage.save_stage_output(conversation_id, 4, stage4_chairman_decision)
+                yield f"data: {json.dumps({'type': 'stage4_complete', 'data': stage4_chairman_decision}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 5)
 
             # Stage 5: LLM final acceptance
-            yield f"data: {json.dumps({'type': 'stage5_start'}, ensure_ascii=False)}\n\n"
-            stage5_llm_finals = await stage5_llm_final_acceptance(request.content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals, stage4_chairman_decision)
-            yield f"data: {json.dumps({'type': 'stage5_complete', 'data': stage5_llm_finals}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 5:
+                yield f"data: {json.dumps({'type': 'stage5_start'}, ensure_ascii=False)}\n\n"
+                stage5_llm_finals = await stage5_llm_final_acceptance(user_content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals, stage4_chairman_decision)
+                storage.save_stage_output(conversation_id, 5, stage5_llm_finals)
+                yield f"data: {json.dumps({'type': 'stage5_complete', 'data': stage5_llm_finals}, ensure_ascii=False)}\n\n"
+                storage.update_conversation_status(conversation_id, "processing", 6)
 
             # Stage 6: Calculate payments
-            yield f"data: {json.dumps({'type': 'stage6_start'}, ensure_ascii=False)}\n\n"
-            stage6_payments = stage6_calculate_final_payments(stage0_quotes, stage3_self_evals, stage4_chairman_decision, stage5_llm_finals)
-            yield f"data: {json.dumps({'type': 'stage6_complete', 'data': stage6_payments}, ensure_ascii=False)}\n\n"
+            if resume_from_stage <= 6:
+                yield f"data: {json.dumps({'type': 'stage6_start'}, ensure_ascii=False)}\n\n"
+                stage6_payments = stage6_calculate_final_payments(stage0_quotes, stage3_self_evals, stage4_chairman_decision, stage5_llm_finals)
+                storage.save_stage_output(conversation_id, 6, stage6_payments)
+                yield f"data: {json.dumps({'type': 'stage6_complete', 'data': stage6_payments}, ensure_ascii=False)}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
@@ -237,22 +311,15 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 storage.update_conversation_title(conversation_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}}, ensure_ascii=False)}\n\n"
 
-            # Save complete assistant message with all 7 stages
-            storage.add_assistant_message(
-                conversation_id,
-                stage0=stage0_quotes,
-                stage1=stage1_results,
-                stage2=stage2_chairman_eval,
-                stage3=stage3_self_evals,
-                stage4=stage4_chairman_decision,
-                stage5=stage5_llm_finals,
-                stage6=stage6_payments
-            )
+            # Mark conversation as completed
+            storage.update_conversation_status(conversation_id, "completed", None)
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            # Mark conversation as error
+            storage.update_conversation_status(conversation_id, "error", None)
             # Send error event
             error_msg = str(e).replace('\n', ' ').replace('\r', ' ')
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
