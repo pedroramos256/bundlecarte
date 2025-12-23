@@ -7,10 +7,17 @@
 }
 
 .stage-title {
-  margin: 0 0 16px 0;
+  margin: 0 0 8px 0;
   color: #002fa7;
   font-size: 20px;
   font-weight: 600;
+}
+
+.stage-subtitle {
+  margin: 0 0 16px 0;
+  color: #000000;
+  font-size: 14px;
+  font-style: italic;
 }
 
 .quotes-grid {
@@ -22,15 +29,40 @@
 
 .quote-card {
   background: #ffffff;
-  border: 1px solid #000000;
+  border: 2px solid #000000;
   border-radius: 8px;
   padding: 16px;
   transition: all 0.2s;
+  position: relative;
+  opacity: 0.5;
+}
+
+.quote-card.selected {
+  border-color: #002fa7;
+  border-width: 3px;
+  opacity: 1;
+  background: #f0f7ff;
+}
+
+.quote-card.not-selected {
+  opacity: 0.4;
 }
 
 .quote-card:hover {
-  border-color: #376fff;
-  box-shadow: none;
+  opacity: 1;
+}
+
+.selected-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #002fa7;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 .quote-model {
@@ -66,29 +98,62 @@
 
 .quote-value.cost-highlight {
   color: #002fa7;
-  font-size: 20px;
+  font-size: 18px;
 }
 
-.total-cost {
+.cost-summary {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px;
   background: #ffffff;
   border-radius: 6px;
-  border: 1px solid #002fa7;
+  border: 2px solid #002fa7;
 }
 
-.total-label {
-  font-weight: 600;
-  color: #002fa7;
-  font-size: 19px;
+.cost-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
 }
 
-.total-value {
+.cost-item.selected-summary {
+  border-bottom: 2px solid #002fa7;
+  padding-bottom: 12px;
+}
+
+.cost-item.savings {
+  border-top: 2px solid #000000;
+  padding-top: 12px;
   font-weight: 700;
+}
+
+.cost-label {
+  font-weight: 600;
+  color: #000000;
+  font-size: 15px;
+}
+
+.cost-item.selected-summary .cost-label {
   color: #002fa7;
-  font-size: 22px;
+  font-size: 17px;
+}
+
+.cost-value {
+  font-weight: 700;
+  color: #000000;
+  font-size: 16px;
+}
+
+.cost-item.selected-summary .cost-value {
+  color: #002fa7;
+  font-size: 20px;
+}
+
+.cost-item.savings .cost-value {
+  color: #376fff;
+  font-size: 18px;
 }
 
 .tabs {

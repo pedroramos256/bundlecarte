@@ -11,6 +11,7 @@ import asyncio
 import traceback
 
 from . import storage
+from .config import CHAIRMAN_MODEL
 from .council import (
     run_full_council, generate_conversation_title, 
     stage0_collect_quotes  # New auction mechanism
@@ -92,15 +93,17 @@ async def test_stage0_quotes(request: SendMessageRequest):
     print(f"[ENDPOINT] Content: {request.content}")
     print(f"{'='*80}\n")
     try:
-        quotes = await stage0_collect_quotes(request.content)
+        all_quotes, selected_models, chairman_model = await stage0_collect_quotes(request.content)
         
         # Calculate total cost
-        total_cost = sum(q["estimated_cost"] for q in quotes)
+        total_cost = sum(q["estimated_cost"] for q in all_quotes)
         
         return {
             "stage": "stage0_quotes",
             "prompt": request.content,
-            "quotes": quotes,
+            "quotes": all_quotes,
+            "selected_models": selected_models,
+            "chairman_model": chairman_model,
             "total_estimated_cost": total_cost,
             "currency": "USD"
         }
@@ -252,26 +255,34 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Load saved data for resume
             stage0_quotes = in_progress_message.get('stage1')
+            selected_models = None  # Will be extracted from stage0_quotes if available
             stage1_results = in_progress_message.get('stage2')
             stage2_chairman_eval = in_progress_message.get('stage3')
             stage3_self_evals = in_progress_message.get('stage4')
             stage4_chairman_decision = in_progress_message.get('stage5')
             stage5_llm_finals = in_progress_message.get('stage6')
 
-            # Stage 0: Token quotes
+            # Stage 0: Token quotes - select 3 cheapest from top 10
             if resume_from_stage <= 0:
                 yield f"data: {json.dumps({'type': 'stage0_start'}, ensure_ascii=False)}\n\n"
-                stage0_quotes = await stage0_collect_quotes(user_content)
+                stage0_quotes, selected_models, chairman_model = await stage0_collect_quotes(user_content)
                 storage.save_stage_output(conversation_id, 0, stage0_quotes)
                 yield f"data: {json.dumps({'type': 'stage0_complete', 'data': stage0_quotes}, ensure_ascii=False)}\n\n"
                 storage.update_conversation_status(conversation_id, "processing", 1)
+            else:
+                # Extract selected models from saved stage0 data
+                if stage0_quotes:
+                    selected_models = [q['model'] for q in stage0_quotes if q.get('selected', False)]
+                    # Chairman is the first model in the list (top-ranked)
+                    chairman_model = stage0_quotes[0]['model'] if stage0_quotes else CHAIRMAN_MODEL
 
-            max_tokens_per_model = {q['model']: q['quoted_tokens'] for q in stage0_quotes}
+            # Build token budget only for selected models
+            max_tokens_per_model = {q['model']: q['quoted_tokens'] for q in stage0_quotes if q.get('selected', True)}
 
-            # Stage 1: Collect responses
+            # Stage 1: Collect responses from selected models only
             if resume_from_stage <= 1:
                 yield f"data: {json.dumps({'type': 'stage1_start'}, ensure_ascii=False)}\n\n"
-                stage1_results = await stage1_collect_responses(user_content, max_tokens_per_model)
+                stage1_results = await stage1_collect_responses(user_content, max_tokens_per_model, selected_models)
                 storage.save_stage_output(conversation_id, 1, stage1_results)
                 yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results}, ensure_ascii=False)}\n\n"
                 storage.update_conversation_status(conversation_id, "processing", 2)
@@ -284,7 +295,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Stage 2: Chairman evaluation
             if resume_from_stage <= 2:
                 yield f"data: {json.dumps({'type': 'stage2_start'}, ensure_ascii=False)}\n\n"
-                stage2_chairman_eval = await stage2_evaluate_mccs(user_content, stage0_quotes, stage1_results)
+                stage2_chairman_eval = await stage2_evaluate_mccs(user_content, stage0_quotes, stage1_results, chairman_model)
                 storage.save_stage_output(conversation_id, 2, stage2_chairman_eval)
                 yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_chairman_eval}, ensure_ascii=False)}\n\n"
                 storage.update_conversation_status(conversation_id, "processing", 3)
@@ -300,7 +311,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Stage 4: Chairman final decision
             if resume_from_stage <= 4:
                 yield f"data: {json.dumps({'type': 'stage4_start'}, ensure_ascii=False)}\n\n"
-                stage4_chairman_decision = await stage4_chairman_final_decision(user_content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals)
+                stage4_chairman_decision = await stage4_chairman_final_decision(user_content, stage0_quotes, stage1_results, stage2_chairman_eval, stage3_self_evals, chairman_model)
                 storage.save_stage_output(conversation_id, 4, stage4_chairman_decision)
                 yield f"data: {json.dumps({'type': 'stage4_complete', 'data': stage4_chairman_decision}, ensure_ascii=False)}\n\n"
                 storage.update_conversation_status(conversation_id, "processing", 5)

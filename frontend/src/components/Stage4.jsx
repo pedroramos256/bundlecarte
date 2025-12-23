@@ -2,6 +2,7 @@ import { useState } from 'react';
 import './Stage4.css';
 
 export default function Stage4({ selfEvaluations }) {
+  const [isOpen, setIsOpen] = useState(false);
   const [expandedIndex, setExpandedIndex] = useState(null);
 
   if (!selfEvaluations || selfEvaluations.length === 0) {
@@ -14,9 +15,16 @@ export default function Stage4({ selfEvaluations }) {
 
   return (
     <div className="stage stage4">
-      <h3 className="stage-title">Stage 4: LLM Self-Evaluations</h3>
+      <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
+        <h3 className="stage-title">
+          <span className="toggle-icon">{isOpen ? '▼' : '▶'}</span>
+          Self-Evaluations
+        </h3>
+      </div>
       
-      <div className="evaluations-list">
+      {isOpen && (
+        <>
+        <div className="evaluations-list">
         {selfEvaluations.map((evaluation, index) => (
           <div key={index} className="evaluation-card">
             <div 
@@ -53,6 +61,8 @@ export default function Stage4({ selfEvaluations }) {
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -93,7 +93,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage1 || (index === conversation.messages.length - 1 && isStageLoading(1))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 1: Collecting token budget quotes...</span>
+                      <span>Collecting token budget quotes...</span>
                     </div>
                   )}
                   {msg.stage1 && msg.stage1.length > 0 && <Stage1 quotes={msg.stage1} />}
@@ -102,7 +102,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage2 || (index === conversation.messages.length - 1 && isStageLoading(2))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 2: LLMs generating responses...</span>
+                      <span>LLMs generating responses...</span>
                     </div>
                   )}
                   {/* Try stage2 first, fall back to stage1 for old conversations */}
@@ -116,7 +116,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage3 || (index === conversation.messages.length - 1 && isStageLoading(3))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 3: Chairman evaluating and assigning MCCs...</span>
+                      <span>Chairman evaluating and assigning MCCs...</span>
                     </div>
                   )}
                   {msg.stage3 && Object.keys(msg.stage3).length > 0 && <Stage3 chairmanEval={msg.stage3} />}
@@ -125,7 +125,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage4 || (index === conversation.messages.length - 1 && isStageLoading(4))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 4: LLMs self-evaluating their contributions...</span>
+                      <span>Stage 3: LLMs self-evaluating their contributions...</span>
                     </div>
                   )}
                   {msg.stage4 && (Array.isArray(msg.stage4) ? msg.stage4.length > 0 : Object.keys(msg.stage4).length > 0) && <Stage4 selfEvaluations={msg.stage4} />}
@@ -134,7 +134,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage5 || (index === conversation.messages.length - 1 && isStageLoading(5))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 5: Chairman making final strategic decisions...</span>
+                      <span>Chairman making final strategic decisions...</span>
                     </div>
                   )}
                   {msg.stage5 && Object.keys(msg.stage5).length > 0 && <Stage5 chairmanDecision={msg.stage5} />}
@@ -143,7 +143,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage6 || (index === conversation.messages.length - 1 && isStageLoading(6))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 6: LLMs submitting final MCCs...</span>
+                      <span>LLMs submitting final MCCs...</span>
                     </div>
                   )}
                   {msg.stage6 && (Array.isArray(msg.stage6) ? msg.stage6.length > 0 : Object.keys(msg.stage6).length > 0) && <Stage6 llmFinals={msg.stage6} chairmanDecision={msg.stage5} />}
@@ -152,7 +152,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage7 || (index === conversation.messages.length - 1 && isStageLoading(7))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Stage 7: Calculating final payments...</span>
+                      <span>Calculating final payments...</span>
                     </div>
                   )}
                   {msg.stage7 && (Array.isArray(msg.stage7) ? msg.stage7.length > 0 : Object.keys(msg.stage7).length > 0) && <Stage7 payments={msg.stage7} />}
@@ -160,13 +160,6 @@ export default function ChatInterface({
               )}
             </div>
           ))
-        )}
-
-        {isLoading && (
-          <div className="loading-indicator">
-            <div className="spinner"></div>
-            <span>Consulting the council...</span>
-          </div>
         )}
 
         <div ref={messagesEndRef} />

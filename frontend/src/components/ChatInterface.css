@@ -88,15 +88,15 @@
   line-height: 1.6;
   width: 100%;
   white-space: pre-wrap;
-  font-size: 22px;
+  font-size: 14px;
 }
 
 .user-message .message-content .markdown-content {
-  font-size: 22px;
+  font-size: 14px;
 }
 
 .user-message .message-content .markdown-content p {
-  font-size: 22px;
+  font-size: 14px;
   margin: 12px 0;
 }
 

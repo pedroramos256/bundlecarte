@@ -10,8 +10,10 @@
   background: #ffffff;
   border: 1px solid #000000;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-header {
@@ -22,10 +24,11 @@
   background: #ffffff;
   border-bottom: 2px solid #002fa7;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 13px;
   color: #002fa7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  min-width: 500px;
 }
 
 .table-row {
@@ -35,6 +38,7 @@
   padding: 14px 16px;
   border-bottom: 1px solid #000000;
   transition: background 0.2s;
+  min-width: 500px;
 }
 
 .table-row:last-child {
@@ -55,29 +59,29 @@
 .model-name {
   font-weight: 600;
   color: #000000;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .decision-value {
   display: inline-block;
-  padding: 6px 14px;
+  padding: 4px 12px;
   background: #ffffff;
   border: 1px solid #002fa7;
   border-radius: 6px;
   font-weight: 700;
   color: #002fa7;
-  font-size: 17px;
+  font-size: 14px;
 }
 
 .communication-value {
   display: inline-block;
-  padding: 6px 14px;
+  padding: 4px 12px;
   background: #ffffff;
   border: 1px solid #376fff;
   border-radius: 6px;
   font-weight: 600;
   color: #376fff;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .decisions-note {

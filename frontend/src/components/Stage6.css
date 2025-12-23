@@ -35,7 +35,7 @@
 .final-model {
   font-weight: 600;
   color: #000000;
-  font-size: 19px;
+  font-size: 15px;
 }
 
 .final-comparison {
@@ -62,7 +62,7 @@
 }
 
 .comp-label {
-  font-size: 17px;
+  font-size: 13px;
   color: #000000;
   font-weight: 500;
   text-transform: uppercase;
@@ -71,19 +71,19 @@
 }
 
 .comp-value {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 700;
   color: #000000;
 }
 
 .comp-value.highlight {
   color: #002fa7;
-  font-size: 24px;
+  font-size: 18px;
 }
 
 .arrow-divider {
   color: #002fa7;
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
 }
 
@@ -92,7 +92,7 @@
   background: #ffffff;
   border: 1px solid #000000;
   border-radius: 6px;
-  font-size: 18px;
+  font-size: 14px;
   color: #000000;
   line-height: 1.5;
 }

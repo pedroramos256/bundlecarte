@@ -4,6 +4,7 @@ import './Stage2.css';
 
 export default function Stage2({ responses }) {
   const [activeTab, setActiveTab] = useState(0);
+  const [isOpen, setIsOpen] = useState(false);
 
   if (!responses || responses.length === 0) {
     return null;
@@ -17,9 +18,16 @@ export default function Stage2({ responses }) {
 
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">Stage 2: LLM Responses</h3>
-
-      <div className="tabs">
+      <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
+        <h3 className="stage-title">
+          <span className="toggle-icon">{isOpen ? '▼' : '▶'}</span>
+          LLM Responses
+        </h3>
+      </div>
+      
+      {isOpen && (
+        <>
+        <div className="tabs">
         {responses.map((resp, index) => (
           <button
             key={index}
@@ -37,6 +45,8 @@ export default function Stage2({ responses }) {
           <ReactMarkdown>{responses[activeTab].response}</ReactMarkdown>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

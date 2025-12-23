@@ -188,6 +188,7 @@ function App() {
                 lastMsg.stage2 = event.data;
                 if (!lastMsg.loading) lastMsg.loading = {};
                 lastMsg.loading.stage2 = false;
+                lastMsg.loading.stage1 = false; // Also clear stage1 loading
               }
               return { ...prev, messages };
             });
@@ -281,7 +282,8 @@ function App() {
                 
                 lastMsg.stage5 = {
                   model: decisionData.model,
-                  decisions: decisionsArray
+                  decisions: decisionsArray,
+                  communications: decisionData.communications
                 };
                 if (!lastMsg.loading) lastMsg.loading = {};
                 lastMsg.loading.stage5 = false;
@@ -339,19 +341,8 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               if (lastMsg && lastMsg.role === 'assistant') {
-                // Transform payment data structure to array format
-                const paymentData = event.data;
-                const paymentsArray = Object.values(paymentData.per_model_payments || {}).map(p => ({
-                  model: p.model,
-                  chairman_decision: p.chairman_decision_mcc,
-                  llm_final_decision: p.llm_final_decision_mcc,
-                  payment_mcc: p.llm_receives_mcc,
-                  revenue: p.payment_amount_usd,
-                cost: p.quoted_cost,
-                profit_loss: p.profit_usd
-              }));
-              
-                lastMsg.stage7 = paymentsArray;
+                // Store the complete payment data structure
+                lastMsg.stage7 = event.data;
                 if (!lastMsg.loading) lastMsg.loading = {};
                 lastMsg.loading.stage7 = false;
               }

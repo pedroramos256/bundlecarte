@@ -12,6 +12,7 @@
   border-radius: 8px;
   overflow-x: auto;
   margin-bottom: 20px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-header {
@@ -22,7 +23,7 @@
   background: #ffffff;
   border-bottom: 2px solid #002fa7;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 13px;
   color: #002fa7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -61,24 +62,24 @@
 .model-name {
   font-weight: 600;
   color: #000000;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .value {
   font-weight: 600;
   color: #000000;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .payment-highlight {
   color: #002fa7 !important;
   font-weight: 700 !important;
-  font-size: 17px !important;
+  font-size: 15px !important;
 }
 
 .profit {
   font-weight: 700 !important;
-  font-size: 17px !important;
+  font-size: 15px !important;
 }
 
 .profit.positive {

@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import './Stage6.css';
 
 export default function Stage6({ llmFinals, chairmanDecision }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
   if (!llmFinals) {
     return null;
   }
@@ -18,9 +21,16 @@ export default function Stage6({ llmFinals, chairmanDecision }) {
 
   return (
     <div className="stage stage6">
-      <h3 className="stage-title">Stage 6: LLM Final Acceptance</h3>
+      <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
+        <h3 className="stage-title">
+          <span className="toggle-icon">{isOpen ? '▼ ' : '▶ '}</span>
+          LLMs Final Decision
+        </h3>
+      </div>
       
-      <div className="finals-grid">
+      {isOpen && (
+        <>
+        <div className="finals-grid">
         {finalsArray.map((final, index) => {
           // Handle both field naming conventions
           const finalMCC = final.llm_final_decision ?? final.llm_final_decision_mcc ?? 0;
@@ -43,7 +53,7 @@ export default function Stage6({ llmFinals, chairmanDecision }) {
                 <div className="arrow-divider">→</div>
                 
                 <div className="comparison-item llm-final">
-                  <div className="comp-label">LLM Final MCC</div>
+                  <div className="comp-label">LLM Final Decision</div>
                   <div className="comp-value highlight">{finalMCC}%</div>
                 </div>
               </div>
@@ -55,6 +65,8 @@ export default function Stage6({ llmFinals, chairmanDecision }) {
       <div className="finals-note">
         Final MCCs submitted by LLMs after seeing chairman's strategic communication values. Payments will be calculated in Stage 7.
       </div>
+      </>
+      )}
     </div>
   );
 }

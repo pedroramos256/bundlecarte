@@ -2,36 +2,57 @@
 
 from typing import List, Dict, Any, Tuple, Optional
 import re
-from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL, MODEL_COSTS, NEGOTIATION_PENALTY_T
+import asyncio
+from .openrouter import query_models_parallel, query_model, fetch_top_models
+from .config import CHAIRMAN_MODEL, NEGOTIATION_PENALTY_T
 
 
 # ============================================================================
-# NEW AUCTION MECHANISM - STAGE 1: TOKEN BUDGET QUOTING
+# NEW AUCTION MECHANISM - STAGE 0: TOKEN BUDGET QUOTING
 # ============================================================================
 
-async def stage0_collect_quotes(user_query: str) -> List[Dict[str, Any]]:
+async def stage0_collect_quotes(user_query: str) -> Tuple[List[Dict[str, Any]], List[str], str]:
     """
-    Stage 0: Each LLM quotes how many tokens they want to use.
+    Stage 0: Fetch top 10 models from OpenRouter, have them bid on token usage, select the 3 cheapest.
     
-    LLMs estimate optimal token count based on prompt complexity and their cost,
-    knowing they'll be paid based on Marginal Churn Contribution.
+    Models estimate optimal token count based on prompt complexity and their cost.
+    The 3 models with the lowest total estimated cost are selected for the council.
     
     Args:
         user_query: The user's question
         
     Returns:
-        List of dicts with keys: 'model', 'cost_per_million', 'quoted_tokens', 'estimated_cost'
+        Tuple of (all_quotes, selected_models, chairman_model):
+        - all_quotes: List of all 10 quotes with keys: 'model', 'cost_per_million', 'quoted_tokens', 'estimated_cost', 'selected'
+        - selected_models: List of 3 model identifiers with lowest quotes
+        - chairman_model: The top-ranked model (rank 1) to act as chairman
     """
     print(f"[STAGE0] Starting token quote collection for query: {user_query[:100]}...")
-    n_models = len(COUNCIL_MODELS)
-    print(f"[STAGE0] Number of models: {n_models}")
-    print(f"[STAGE0] Models: {COUNCIL_MODELS}")
+    
+    # Fetch 15 models with diversity (max 2 per provider)
+    # We fetch extra in case some fail during bidding
+    top_models_data = await fetch_top_models(limit=15)
+    
+    if not top_models_data:
+        print(f"[STAGE0] ERROR: Failed to fetch models from API, cannot proceed")
+        raise Exception("Failed to fetch models from OpenRouter API")
+    
+    top_models = [m['id'] for m in top_models_data]
+    
+    print(f"[STAGE0] Querying {len(top_models)} models for bids")
+    print(f"[STAGE0] Models: {[m['id'] for m in top_models_data]}")
     
     # Build quote request messages for each model
     quote_requests = {}
-    for model in COUNCIL_MODELS:
-        cost = MODEL_COSTS.get(model, 10.0)  # Default to $10 if not found
+    model_pricing = {}  # Store input pricing info
+    model_output_pricing = {}  # Store output pricing info
+    
+    for model_info in top_models_data:
+        model = model_info['id']
+        cost = model_info['pricing']['prompt']  # Use prompt pricing from API
+        output_cost = model_info['pricing']['completion']  # Use completion pricing from API
+        model_pricing[model] = cost
+        model_output_pricing[model] = output_cost
         
         prompt = f"""You are bidding on how many tokens to use for answering a question.
 
@@ -39,7 +60,8 @@ USER QUESTION:
 {user_query}
 
 Your cost: ${cost} per million tokens
-Competition: {n_models-1} other LLMs are also bidding
+Competition: {len(top_models_data)-1} other LLMs are bidding for 3 spots
+Selection: Only the 3 LOWEST total cost bids will be selected
 Payment formula: (Your MCC% / 100) × Total_Quote_Sum - Your_Cost
 
 IMPORTANT: You MUST respond with ONLY a number between 500-16000. Nothing else.
@@ -50,7 +72,8 @@ Guidelines:
 - Complex analysis/essays: 2000-8000 tokens
 - Very detailed research: 4000-16000 tokens
 
-Balance quality vs cost. More tokens = better answer = higher MCC, but also higher cost.
+STRATEGY: Balance quality vs cost. Lower quote = more likely selected, but need enough tokens for good answer.
+Higher cost models should bid lower token counts to compete.
 
 Respond with ONLY the number (e.g., 800):"""
 
@@ -58,49 +81,77 @@ Respond with ONLY the number (e.g., 800):"""
     
     print(f"[STAGE0] Built {len(quote_requests)} quote requests")
     
-    # Query all models in parallel
-    responses = {}
-    for model, messages in quote_requests.items():
-        print(f"[STAGE0] Querying model: {model}")
-        response = await query_model(model, messages)
+    # Query all models in parallel using asyncio.gather
+    print(f"[STAGE0] Querying {len(quote_requests)} models in parallel...")
+    response_list = await asyncio.gather(*[
+        query_model(model, messages)
+        for model, messages in quote_requests.items()
+    ])
+    
+    # Map responses back to models
+    responses = dict(zip(quote_requests.keys(), response_list))
+    for model, response in responses.items():
         print(f"[STAGE0] Got response from {model}: {response is not None}")
         if response:
             print(f"[STAGE0] Response content: {response.get('content', '')[:200]}")
         else:
             print(f"[STAGE0] Response was None!")
-        responses[model] = response
     
     # Parse responses and extract token counts
     print(f"[STAGE0] Parsing responses...")
-    stage0_results = []
-    for model in COUNCIL_MODELS:
+    all_quotes = []
+    for model in top_models:
         response = responses.get(model)
-        cost_per_million = MODEL_COSTS.get(model, 10.0)
+        cost_per_million = model_pricing.get(model, 10.0)
+        output_cost_per_million = model_output_pricing.get(model, 10.0)
         
         if response is None:
-            # Failed to get response, use default
-            print(f"[STAGE0] {model}: No response, using default 1000 tokens")
-            quoted_tokens = 1000  # Default token count - reasonable middle ground
-        else:
-            # Extract integer from response
-            content = response.get('content', '').strip()
-            quoted_tokens = _parse_token_count(content)
-            print(f"[STAGE0] {model}: Parsed {quoted_tokens} tokens from response")
+            # Failed to get response - skip this model (likely 404 or error)
+            print(f"[STAGE0] {model}: No response, SKIPPING this model")
+            continue
         
-        # Calculate estimated cost
-        estimated_cost = (quoted_tokens / 1_000_000) * cost_per_million
+        # Extract integer from response
+        content = response.get('content', '').strip()
+        quoted_tokens = _parse_token_count(content)
+        print(f"[STAGE0] {model}: Parsed {quoted_tokens} tokens from response")
         
-        stage0_results.append({
+        # Calculate estimated cost using OUTPUT pricing
+        estimated_cost = (quoted_tokens / 1_000_000) * output_cost_per_million
+        
+        all_quotes.append({
             "model": model,
             "cost_per_million": cost_per_million,
+            "output_cost_per_million": output_cost_per_million,
             "quoted_tokens": quoted_tokens,
             "estimated_cost": estimated_cost,
-            "raw_response": response.get('content', '') if response else None
+            "raw_response": response.get('content', '') if response else None,
+            "selected": False  # Will be updated below
         })
     
-    print(f"[STAGE0] Completed. Total quotes: {len(stage0_results)}")
-    print(f"[STAGE0] Total estimated cost: ${sum(r['estimated_cost'] for r in stage0_results):.4f}")
-    return stage0_results
+    # Ensure we have at least 10 valid quotes for display
+    # If we have less than 10, log a warning but continue
+    if len(all_quotes) < 10:
+        print(f"[STAGE0] WARNING: Only got {len(all_quotes)} valid quotes (expected 10+)")
+    
+    # Sort by estimated cost (ascending) and select top 3
+    all_quotes.sort(key=lambda x: x['estimated_cost'])
+    selected_models = [all_quotes[i]['model'] for i in range(min(3, len(all_quotes)))]
+    
+    # Use the first selected model (cheapest) as chairman
+    chairman_model = selected_models[0] if selected_models else CHAIRMAN_MODEL
+    
+    # Mark selected models
+    for quote in all_quotes:
+        if quote['model'] in selected_models:
+            quote['selected'] = True
+    
+    print(f"[STAGE0] Completed. Total quotes: {len(all_quotes)}")
+    print(f"[STAGE0] Selected 3 cheapest models: {selected_models}")
+    print(f"[STAGE0] Chairman model (cheapest selected): {chairman_model}")
+    print(f"[STAGE0] Selected total cost: ${sum(q['estimated_cost'] for q in all_quotes if q['selected']):.4f}")
+    print(f"[STAGE0] All bids total cost: ${sum(q['estimated_cost'] for q in all_quotes):.4f}")
+    
+    return all_quotes, selected_models, chairman_model
 
 
 def _parse_token_count(text: str) -> int:
@@ -144,9 +195,13 @@ def _parse_token_count(text: str) -> int:
 # ORIGINAL 3-STAGE COUNCIL (Keep for backward compatibility)
 # ============================================================================
 
-async def stage1_collect_responses(user_query: str, max_tokens_per_model: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(
+    user_query: str, 
+    max_tokens_per_model: Optional[Dict[str, int]] = None,
+    selected_models: List[str] = None
+) -> List[Dict[str, Any]]:
     """
-    Stage 1: Collect individual responses from all council models with MCC-aware prompting.
+    Stage 1: Collect individual responses from selected council models with MCC-aware prompting.
     
     Each LLM is informed they'll be paid based on Marginal Churn Contribution,
     encouraging them to provide unique value (stop game dynamics).
@@ -154,16 +209,22 @@ async def stage1_collect_responses(user_query: str, max_tokens_per_model: Option
     Args:
         user_query: The user's question
         max_tokens_per_model: Optional dict mapping model to max_tokens limit (from Stage 0 quotes)
+        selected_models: List of model identifiers to query (from Stage 0 selection)
 
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    n_models = len(COUNCIL_MODELS)
+    if not selected_models:
+        raise ValueError("selected_models must be provided (from Stage 0)")
+    
+    n_models = len(selected_models)
+    
+    print(f"[STAGE1] Querying {n_models} selected models: {selected_models}")
     
     # Build responses with token budget awareness for each model
     responses_list = []
     
-    for model in COUNCIL_MODELS:
+    for model in selected_models:
         max_tokens = None
         token_budget_note = ""
         
@@ -177,9 +238,16 @@ async def stage1_collect_responses(user_query: str, max_tokens_per_model: Option
 {user_query}
 </prompt>
 
-Take into account that other {n_models - 1} LLMs are answering as well and you will be paid based on your Marginal Churn Contribution (probability of the user preferring your quote and answer instead of the aggregate quote and aggregate answer). 
+Take into account that other {n_models - 1} LLMs are answering as well and you will be paid based on your Marginal Churn Contribution (MCC).
 
-So you should both give a complete answer and bring to the table value that the other LLMs may not bring. Think of it as the stop game, information no other LLM mentions will be more valuable than what everyone else mentions. 
+MCC CONCEPT (based on Shapley values from game theory):
+- MCC = probability of users preferring YOUR individual answer over the chairman's aggregate answer
+- In game theory, Shapley values measure each player's marginal contribution to a coalition
+- Here, your MCC measures your unique value: what would be lost if you weren't in the council
+- Higher MCC = you provide insights/perspectives that other LLMs don't cover
+- Lower MCC = your contribution is redundant or well-covered by others
+
+STRATEGY: Provide a complete answer AND bring unique value. Think of it as the "stop game" - information no other LLM mentions will be more valuable than what everyone else mentions. 
 
 IMPORTANT: Respond with just your answer to the user prompt
 {token_budget_note}"""
@@ -188,10 +256,13 @@ IMPORTANT: Respond with just your answer to the user prompt
         responses_list.append((model, messages, max_tokens))
     
     # Query all models in parallel with token limits if provided
-    responses = {}
-    for model, messages, max_tokens in responses_list:
-        response = await query_model(model, messages, max_tokens=max_tokens)
-        responses[model] = response
+    response_list = await asyncio.gather(*[
+        query_model(model, messages, max_tokens=max_tokens)
+        for model, messages, max_tokens in responses_list
+    ])
+    
+    # Map responses back to models
+    responses = {model: response for (model, _, _), response in zip(responses_list, response_list)}
 
     # Format results
     stage1_results = []
@@ -208,7 +279,8 @@ IMPORTANT: Respond with just your answer to the user prompt
 async def stage2_evaluate_mccs(
     user_query: str,
     stage0_quotes: List[Dict[str, Any]],
-    stage1_results: List[Dict[str, Any]]
+    stage1_results: List[Dict[str, Any]],
+    chairman_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Stage 2: Chairman aggregates answers and evaluates Marginal Churn Contribution (MCC).
@@ -220,6 +292,7 @@ async def stage2_evaluate_mccs(
         user_query: The original user query
         stage0_quotes: Token quotes from Stage 0
         stage1_results: Individual responses from Stage 1
+        chairman_model: The model to use as chairman (defaults to config CHAIRMAN_MODEL)
 
     Returns:
         Dict with 'aggregated_answer', 'chairman_mccs', 'model', 'raw_response'
@@ -243,37 +316,52 @@ LLM ANSWERS:
 {answers_text}
 
 Your tasks:
-1. Create a comprehensive aggregated answer combining the best insights
-2. Evaluate each LLM's Marginal Churn Contribution (MCC) = probability users would prefer an LLM individual answer over your aggregate
+1. Create a comprehensive aggregated answer combining the best insights from each LLM answer
+2. Evaluate each LLM's Marginal Churn Contribution (MCC) using Shapley value principles
+
+MCC CONCEPT (Shapley Values from Cooperative Game Theory):
+- MCC measures each LLM's marginal contribution to the coalition (the council)
+- In Shapley value terms: "What value is lost if this player is removed from the coalition?"
+- Here: MCC = probability users would prefer an LLM's individual answer over your aggregate
+- This captures the LLM's unique contribution that isn't redundant with others
 
 CRITICAL MCC RULES:
 - Higher MCC = more unique value, better quality, key insights users would miss in aggregate
 - Lower MCC = redundant, lower quality, or well-covered in aggregate
 - You earn 100% - sum(MCCs), so be fair but strategic
-- Typical distribution: excellent answers 35-70%, good 15-35%, weak 5-15%
+- THE SUM OF ALL MCC VALUES MUST BE <= 100% (this is mandatory, not a suggestion)
+- You keep the remainder: your_payment = 100 - (MCC_1 + MCC_2 + MCC_3 + ...)
+- Be fair (Shapley values are about accurate marginal contribution) but strategic (you want to maximize your earnings)
+- Typical distribution: excellent answers 25-40%, good 15-25%, weak 5-15%, total sum 60-85%
+- Example valid distribution: 35 + 25 + 20 = 80 (you keep 20)
 
 Consider: accuracy, clarity, completeness, unique contributions, user preference likelihood
 
-Answer in this EXACT JSON format:
+Answer in this EXACT JSON format (aggregated_answer can contain newlines using \\n):
 {{
-  "aggregated_answer": "your comprehensive answer",
+  "aggregated_answer": "your comprehensive answer with \\n for line breaks",
   "MCC_LLM_1": number_0_to_100,
   "MCC_LLM_2": number_0_to_100,
   "MCC_LLM_3": number_0_to_100,
-  "MCC_LLM_4": number_0_to_100
 }}
 
-IMPORTANT: Return ONLY valid JSON, nothing else."""
+CRITICAL: 
+- Return ONLY valid JSON (no markdown, no code blocks, no extra text)
+- Escape special characters in aggregated_answer (use \\n for newlines, \\" for quotes)
+- The JSON must be parseable by json.loads()"""
 
     messages = [{"role": "user", "content": chairman_prompt}]
     
+    # Use provided chairman model or default from config
+    chairman = chairman_model or CHAIRMAN_MODEL
+    
     # Query chairman model with extended timeout for comprehensive answer
-    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192, timeout=240.0)
+    response = await query_model(chairman, messages, max_tokens=8192, timeout=240.0)
     
     if response is None:
         # Fallback if chairman fails
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "aggregated_answer": "Error: Unable to generate aggregated answer.",
             "chairman_mccs": {},
             "raw_response": None
@@ -281,10 +369,69 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
     
     raw_response = response.get('content', '')
     
-    # Parse JSON response
+    # Parse JSON response with robust error handling
     import json
+    import re
+    
+    parsed = None
+    
+    # Strategy 1: Try direct JSON parsing
     try:
         parsed = json.loads(raw_response)
+    except json.JSONDecodeError:
+        pass
+    
+    # Strategy 2: Extract from markdown code blocks
+    if not parsed:
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_response, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+    
+    # Strategy 3: Try to repair malformed JSON with literal newlines
+    if not parsed:
+        try:
+            # Find JSON-like structure boundaries
+            json_start = raw_response.find('{')
+            json_end = raw_response.rfind('}') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_text = raw_response[json_start:json_end]
+                
+                # Fix malformed JSON: escape special characters in aggregated_answer value
+                # Match the aggregated_answer field and fix its value
+                def fix_string_value(match):
+                    prefix = match.group(1)  # Everything before the value
+                    value = match.group(2)    # The actual value
+                    suffix = match.group(3)   # Everything after the value
+                    
+                    # Escape special characters in order
+                    value = value.replace('\\', '\\\\')  # Backslashes first
+                    value = value.replace('"', '\\"')    # Then quotes
+                    value = value.replace('\n', '\\n')   # Then newlines
+                    value = value.replace('\r', '\\r')   # Carriage returns
+                    value = value.replace('\t', '\\t')   # Tabs
+                    
+                    return f'{prefix}"{value}"{suffix}'
+                
+                # Pattern to match: "aggregated_answer": "VALUE", where VALUE can span multiple lines
+                # and may contain unescaped quotes/newlines
+                fixed_json = re.sub(
+                    r'("aggregated_answer"\s*:\s*)"([^"]*(?:"(?!\s*,\s*"MCC_LLM_)[^"]*)*)"(\s*,)',
+                    fix_string_value,
+                    json_text,
+                    flags=re.DOTALL
+                )
+                
+                parsed = json.loads(fixed_json)
+        except (json.JSONDecodeError, Exception) as e:
+            # Log the error for debugging
+            print(f"JSON repair failed: {e}")
+    
+    # If parsing succeeded, extract structured data
+    if parsed and isinstance(parsed, dict) and "aggregated_answer" in parsed:
         aggregated_answer = parsed.get("aggregated_answer", "")
         
         # Extract MCC values for each LLM
@@ -293,20 +440,59 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
             mcc_key = f"MCC_LLM_{i+1}"
             chairman_mccs[result['model']] = parsed.get(mcc_key, 0)
         
+        # Normalize MCCs if sum exceeds 100
+        mcc_sum = sum(chairman_mccs.values())
+        if mcc_sum > 100:
+            print(f"Warning: MCC sum ({mcc_sum}) exceeds 100%, normalizing...")
+            normalization_factor = 100.0 / mcc_sum
+            chairman_mccs = {model: mcc * normalization_factor for model, mcc in chairman_mccs.items()}
+            print(f"Normalized MCCs: {chairman_mccs}")
+        
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "aggregated_answer": aggregated_answer,
             "chairman_mccs": chairman_mccs,
             "raw_response": raw_response
         }
-    except json.JSONDecodeError:
-        # Fallback parsing if JSON is malformed
-        return {
-            "model": CHAIRMAN_MODEL,
-            "aggregated_answer": raw_response,
-            "chairman_mccs": {result['model']: 0 for result in stage1_results},
-            "raw_response": raw_response
-        }
+    
+    # Fallback: Regex extraction when JSON parsing completely fails
+    print(f"All JSON parsing strategies failed, using regex fallback")
+    
+    chairman_mccs = {}
+    for i, result in enumerate(stage1_results):
+        mcc_pattern = rf'"MCC_LLM_{i+1}":\s*(\d+)'
+        match = re.search(mcc_pattern, raw_response)
+        chairman_mccs[result['model']] = int(match.group(1)) if match else 0
+    
+    # Normalize MCCs if sum exceeds 100
+    mcc_sum = sum(chairman_mccs.values())
+    if mcc_sum > 100:
+        print(f"Warning: MCC sum ({mcc_sum}) exceeds 100%, normalizing...")
+        normalization_factor = 100.0 / mcc_sum
+        chairman_mccs = {model: mcc * normalization_factor for model, mcc in chairman_mccs.items()}
+        print(f"Normalized MCCs: {chairman_mccs}")
+    
+    # Extract aggregated_answer: find content between "aggregated_answer": " and ", "MCC_
+    answer_match = re.search(
+        r'"aggregated_answer"\s*:\s*"(.*?)"\s*,\s*"MCC_LLM_',
+        raw_response,
+        re.DOTALL
+    )
+    
+    if answer_match:
+        aggregated_answer = answer_match.group(1)
+        # Unescape common escape sequences
+        aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+    else:
+        # Last resort: use the entire response
+        aggregated_answer = raw_response
+    
+    return {
+        "model": chairman,
+        "aggregated_answer": aggregated_answer,
+        "chairman_mccs": chairman_mccs,
+        "raw_response": raw_response
+    }
 
 
 async def stage3_llm_self_evaluation(
@@ -369,34 +555,52 @@ SITUATION:
 - Your cost: ${quoted_cost:.4f}
 - Total pot: ${quote_sum:.4f}
 
-Now you must self-evaluate your MCC (Marginal Churn Contribution = probability users prefer YOUR answer over the aggregate).
+Now you must self-evaluate your MCC (Marginal Churn Contribution).
+
+MCC & SHAPLEY VALUES:
+- MCC is based on Shapley values from cooperative game theory
+- It measures your marginal contribution: what unique value would be lost without you?
+- MCC = probability users prefer YOUR individual answer over the chairman's aggregate
+- Higher MCC = you provided insights, perspectives, or quality that others didn't
+- Lower MCC = your contribution overlaps heavily with others or is lower quality
 
 STRATEGIC PAYMENT RULES:
 - If your self-MCC > chairman's MCC: You'll receive (chairman_MCC - {NEGOTIATION_PENALTY_T})% (PENALTY for overestimating!)
 - If your self-MCC ≤ chairman's MCC: You'll receive (chairman_MCC + self_MCC)/2 (REWARD for being reasonable)
 - Your payment = (final_MCC% / 100) × ${quote_sum:.4f} - ${quoted_cost:.4f}
 
-Be strategic! Argue for your unique value, but consider:
-- If chairman gave you {chairman_mcc}%, claiming higher risks penalty, but this is an anchor value part of a negotiation, you will still receive a response from the chairman and then you take the final decision
-- Claiming equal or slightly lower gets you the average
+CRITICAL CONSTRAINT:
+- Your self-MCC MUST be ≥ {chairman_mcc}% (chairman's evaluation is the floor, never go below it)
+- Claiming equal to chairman gets you exactly {chairman_mcc}%
+- Claiming slightly above (e.g., {chairman_mcc + 5}%-{chairman_mcc + 15}%) risks penalty but could get you more
+- This is a negotiation - you get another chance after chairman's response before final decision
+
+Be strategic! Argue for your unique value:
 - What unique insights do you provide that other LLMs lack?
+- Why does your answer deserve at least {chairman_mcc}% or more?
+- Consider the penalty risk vs. potential upside of claiming higher
 
 Answer in this EXACT JSON format:
 {{
   "arguments": "specific unique value your answer provides that other LLMs don't",
-  "MCC": number_0_to_100
+  "MCC": number_{chairman_mcc}_to_100
 }}
 
-IMPORTANT: Return ONLY valid JSON, nothing else."""
+IMPORTANT: 
+- Return ONLY valid JSON, nothing else
+- MCC must be >= {chairman_mcc}"""
 
         self_eval_tasks.append((model, prompt))
     
-    # Query all models in parallel
+    # Query all models in parallel using asyncio.gather
+    response_list = await asyncio.gather(*[
+        query_model(model, [{"role": "user", "content": prompt}], max_tokens=8192)
+        for model, prompt in self_eval_tasks
+    ])
+    
+    # Process responses
     self_eval_results = []
-    for model, prompt in self_eval_tasks:
-        messages = [{"role": "user", "content": prompt}]
-        response = await query_model(model, messages, max_tokens=8192)
-        
+    for (model, prompt), response in zip(self_eval_tasks, response_list):
         if response is None:
             self_eval_results.append({
                 "model": model,
@@ -411,11 +615,19 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
         import json
         try:
             parsed = json.loads(raw_response)
+            self_mcc = parsed.get("MCC", chairman_mccs.get(model, 0))
+            
+            # Enforce constraint: self_mcc must be >= chairman's evaluation
+            chairman_mcc = chairman_mccs.get(model, 0)
+            if self_mcc < chairman_mcc:
+                print(f"Warning: {model} self-evaluated at {self_mcc}% but chairman gave {chairman_mcc}%. Enforcing floor.")
+                self_mcc = chairman_mcc
+            
             self_eval_results.append({
                 "model": model,
-                "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                "chairman_initial_mcc": chairman_mcc,
                 "arguments": parsed.get("arguments", ""),
-                "self_mcc": parsed.get("MCC", 0)
+                "self_mcc": self_mcc
             })
         except json.JSONDecodeError:
             # Try to extract JSON from wrapped response
@@ -424,20 +636,35 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
                 json_match = re.search(r'\{[^{}]*"MCC"[^{}]*\}', raw_response, re.DOTALL)
                 if json_match:
                     parsed = json.loads(json_match.group())
+                    self_mcc = parsed.get("MCC", chairman_mccs.get(model, 0))
+                    
+                    # Enforce constraint: self_mcc must be >= chairman's evaluation
+                    chairman_mcc = chairman_mccs.get(model, 0)
+                    if self_mcc < chairman_mcc:
+                        print(f"Warning: {model} self-evaluated at {self_mcc}% but chairman gave {chairman_mcc}%. Enforcing floor.")
+                        self_mcc = chairman_mcc
+                    
                     self_eval_results.append({
                         "model": model,
-                        "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                        "chairman_initial_mcc": chairman_mcc,
                         "arguments": parsed.get("arguments", raw_response[:200]),
-                        "self_mcc": parsed.get("MCC", chairman_mccs.get(model, 0))
+                        "self_mcc": self_mcc
                     })
                 else:
                     # Try to extract just MCC number
                     mcc_match = re.search(r'["\']?MCC["\']?\s*:\s*(\d+)', raw_response)
                     if mcc_match:
                         mcc_value = int(mcc_match.group(1))
+                        
+                        # Enforce constraint: self_mcc must be >= chairman's evaluation
+                        chairman_mcc = chairman_mccs.get(model, 0)
+                        if mcc_value < chairman_mcc:
+                            print(f"Warning: {model} self-evaluated at {mcc_value}% but chairman gave {chairman_mcc}%. Enforcing floor.")
+                            mcc_value = chairman_mcc
+                        
                         self_eval_results.append({
                             "model": model,
-                            "chairman_initial_mcc": chairman_mccs.get(model, 0),
+                            "chairman_initial_mcc": chairman_mcc,
                             "arguments": raw_response[:300],
                             "self_mcc": mcc_value
                         })
@@ -466,7 +693,8 @@ async def stage4_chairman_final_decision(
     stage0_quotes: List[Dict[str, Any]],
     stage1_results: List[Dict[str, Any]],
     stage2_chairman_eval: Dict[str, Any],
-    stage3_self_evals: List[Dict[str, Any]]
+    stage3_self_evals: List[Dict[str, Any]],
+    chairman_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Stage 4: Chairman makes final payment decisions based on self-evaluations.
@@ -530,17 +758,35 @@ EVALUATIONS COMPARISON:
 
 Now make your final payment decisions for each LLM.
 
-PAYMENT RULES (what YOU pay):
-- If your_initial_MCC < their_self_MCC: You MUST pay (their_self_MCC + {NEGOTIATION_PENALTY_T})% (penalty for your underestimation)
-- If your_initial_MCC ≥ their_self_MCC: You pay (your_initial_MCC + their_self_MCC)/2 (the average)
+GAME-THEORY NEGOTIATION RULES:
+- You're playing a strategic game with incomplete information
+- LLMs don't know your true internal decision - only what you communicate
+- You can bluff: communicate LOW to pressure them to accept less
+- But if you lowball too much, they might call your bluff and demand more
 
-STRATEGIC COMMUNICATION:
-- You choose what MCC value to communicate to each LLM
-- Can differ from your internal decision
-- LLMs will make final acceptance based on your communication
-- Their actual payment depends on comparison of your INTERNAL DECISION vs their FINAL
+PAYMENT RULES (what YOU actually pay based on final outcomes):
+- If LLM_final > your_decision: You pay LLM_final + 0.2 * (LLM_final - your_decision) as penalty
+  Example: Your decision 30%, they demand 40% → you pay 40 + 0.2 * (40 - 30) = 42%
+- If LLM_final ≤ your_decision: You pay (your_decision + LLM_final)/2 (split the difference)
+  Example: Your decision 40%, they accept 30% → you pay 35%
 
-Be strategic. Consider their arguments. Your communicated values should be lower than 100% (since that's the total pot and you will receive the remaining).
+STRATEGIC TRADE-OFF:
+- Communicate LOW = pressure them to fold, but risk paying penalty if they call
+- Communicate HIGH = less likely they demand more, but you pay more if they split
+- The penalty grows with how far you lowball (0.2x the gap)
+
+STRATEGIC CONSIDERATIONS:
+- Set internal decisions HIGH if you genuinely value their contribution (safety play)
+- Communicate LOWER than internal to pressure them into accepting less
+- Risk: If you communicate too low, they might reject and demand their self_eval amount
+- Example (Assuming the LLM self-eval is 45%):
+- Your internal decision is 40% and you communicate 35% → if they accept 35%, you pay (35 + 40)/2 = 37.5% (saved 7.5% compared to agreeing with the self-eval)
+- Your internal decision is 40% and you communicate 25% → if they call your bluff and keep the 45%, you pay 45 + 0.2 * (45 - 40) = 46% (lost 1% compared to agreeing with the self-eval)
+
+CRITICAL CONSTRAINTS:
+- Your final decision for each LLM MUST be larger or equal than your initial evaluation (can't revise quality down)
+- THE SUM OF ALL YOUR DECISIONS MUST BE < 100% (you keep the remainder)
+- If sum ≥ 100%, you lose money! Balance generosity vs. self-interest
 
 Answer in this EXACT JSON format:
 {{
@@ -549,20 +795,21 @@ Answer in this EXACT JSON format:
   "decision_LLM_2": number_0_to_100,
   "communicated_to_LLM_2": number_0_to_100,
   "decision_LLM_3": number_0_to_100,
-  "communicated_to_LLM_3": number_0_to_100,
-  "decision_LLM_4": number_0_to_100,
-  "communicated_to_LLM_4": number_0_to_100
+  "communicated_to_LLM_3": number_0_to_100
 }}
 
 IMPORTANT: Return ONLY valid JSON, nothing else."""
 
     messages = [{"role": "user", "content": chairman_prompt}]
     
+    # Use provided chairman model or default from config
+    chairman = chairman_model or CHAIRMAN_MODEL
+    
     # Query chairman model with extended timeout
-    response = await query_model(CHAIRMAN_MODEL, messages, max_tokens=8192, timeout=240.0)
+    response = await query_model(chairman, messages, max_tokens=8192, timeout=240.0)
     
     if response is None:
-        # Fallback if chairman fails - apply rules automatically
+        # Fallback if chairman fails - apply strategic rules
         decisions = {}
         communications = {}
         for i, self_eval in enumerate(stage3_self_evals):
@@ -570,16 +817,20 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
             chairman_mcc = chairman_mccs.get(model, 0)
             self_mcc = self_eval.get('self_mcc', 0)
             
-            if chairman_mcc < self_mcc:
-                final_decision = self_mcc + NEGOTIATION_PENALTY_T
+            # Strategic decision: Set internal higher than initial, communicate lower
+            if self_mcc > chairman_mcc:
+                internal_decision = (chairman_mcc + self_mcc) / 2
             else:
-                final_decision = (chairman_mcc + self_mcc) / 2
+                internal_decision = chairman_mcc * 1.1
             
-            decisions[model] = final_decision
-            communications[model] = final_decision
+            # Communicate lower to create negotiation pressure
+            communicated = internal_decision * 0.85
+            
+            decisions[model] = max(internal_decision, chairman_mcc)
+            communications[model] = communicated
         
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "decisions": decisions,
             "communications": communications,
             "raw_response": None
@@ -599,11 +850,19 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
             decision_key = f"decision_LLM_{i+1}"
             comm_key = f"communicated_to_LLM_{i+1}"
             
-            decisions[model] = parsed.get(decision_key, 0)
-            communications[model] = parsed.get(comm_key, 0)
+            decision = parsed.get(decision_key, 0)
+            
+            # Enforce constraint: chairman final decision >= initial decision
+            chairman_initial = chairman_mccs.get(model, 0)
+            if decision < chairman_initial:
+                print(f"Warning: Chairman final decision ({decision}%) < initial ({chairman_initial}%) for {model}. Enforcing floor.")
+                decision = chairman_initial
+            
+            decisions[model] = decision
+            communications[model] = parsed.get(comm_key, decision)
         
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "decisions": decisions,
             "communications": communications,
             "raw_response": raw_response
@@ -622,11 +881,14 @@ IMPORTANT: Return ONLY valid JSON, nothing else."""
             else:
                 final_decision = (chairman_mcc + self_mcc) / 2
             
+            # Enforce constraint: final decision >= initial decision
+            final_decision = max(final_decision, chairman_mcc)
+            
             decisions[model] = final_decision
             communications[model] = final_decision
         
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "decisions": decisions,
             "communications": communications,
             "raw_response": raw_response
@@ -708,31 +970,58 @@ NEGOTIATION HISTORY:
 
 FINAL DECISION TIME. Submit your final MCC acceptance.
 
-PAYMENT RULES (what YOU receive):
-- If your_final > chairman's_internal_decision: (chairman_internal_decision - {NEGOTIATION_PENALTY_T})% (PENALTY!)
-- If your_final ≤ chairman's_internal_decision: (chairman_internal_decision + your_final)/2 (the average)
+GAME-THEORY STYLE NEGOTIATION:
+- Chairman communicated {communicated_mcc}% to you, but this might be a bluff
+- Their TRUE internal decision could be higher (they might be lowballing you)
+- You must decide to accept their offer or to demand more
+
+PAYMENT RULES (what YOU actually receive):
+- If your_final > chairman's_internal: You receive chairman_internal - 0.2 * (your_final - chairman_internal) as penalty
+  Example: Chairman internal 30%, you demand 40% → you get 30 - 0.2 * (40 - 30) = 28%
+- If your_final ≤ chairman's_internal: You receive (chairman_internal + your_final)/2
+  Example: Chairman internal 40%, you accept 30% → you get 35%
+
+STRATEGIC TRADE-OFF:
+- Demand MORE = risk penalty if you exceed their internal, but gain if they were bluffing
+- Accept THEIR OFFER = safe split, but might leave money on table
+- The penalty grows with how much you overreach (0.2x the gap)
+
+STRATEGIC CONSIDERATIONS:
+- CONSERVATIVE: Accept communication ~{communicated_mcc}% (safe, guaranteed split)
+- MODERATE: Demand {int(communicated_mcc * 1.15)}-{int(self_mcc * 0.9)}% to test if they're bluffing
+- AGGRESSIVE: Demand near {self_mcc}% (maximum risk, maximum reward if chairman internal is high)
+
+GAME- THEORY PSYCHOLOGY:
+- If chairman's communication seems suspiciously low → they're probably bluffing
+- If communication is close to your self-eval → they might be genuine
+- Chairman knows they pay what you demand if you call their bluff
+- They have incentive to lowball you, but not too much or you'll call bluff
+
+RISK EXAMPLES (Assuming your self-eval was 40%):
+- Chairman internal 40% but communicated 30%, you accept 30% → you get (40+30)/2 = 35% (left 5% on table)
+- Chairman internal 35% and communicated 35%, you demand 40% → you get 35 - 0.2 * (40 - 35) = 34% (small penalty vs accepting 35%)
+- Chairman internal 30% and communicated 30%, you demand 40% → you get 30 - 0.2 * (40 - 30) = 28% (larger penalty for overreach vs accepting 30%)
+
+CRITICAL CONSTRAINTS:
+- Your final decision MUST be ≤ {self_mcc}% (your self-evaluation is the ceiling)
+- Think as a game-theory player: read the chairman's communication, assess bluff likelihood, make your move
+- Conservative = safe but might leave money on table
+- Aggressive = risky but could win big if chairman is bluffing
 
 FINANCIAL CALCULATION:
 - Total pot: ${total_pot:.4f}
 - Your cost: ${quoted_cost:.4f}
-- Your payment: (final_MCC% / 100) × ${total_pot:.4f}
-- Your profit: payment - cost (${quoted_cost:.4f})
+- Estimated payment if you accept {communicated_mcc}%: ${(communicated_mcc / 100) * total_pot:.4f}
+- Estimated payment if you demand {self_mcc}%: ${(self_mcc / 100) * total_pot:.4f}
 
-STRATEGIC GUIDANCE:
-- Chairman told you {communicated_mcc}%
-- This might be their true decision, or strategic communication
-- Submitting ≤ {communicated_mcc}% is safe (gets you average)
-- Submitting > {communicated_mcc}% risks -{NEGOTIATION_PENALTY_T}% penalty
-- Example: If chairman's internal decision is 20% and you submit 25%, you get 20-5=15%
-- Example: If chairman's internal decision is 20% and you submit 20%, you get (20+20)/2=20%
-
-Submit your final MCC as ONLY a number between 0-100 (no text):"""
+MAKE YOUR MOVE - Submit your final MCC as ONLY a number between {int(communicated_mcc)}-{self_mcc} (no text):"""
 
         final_acceptance_tasks.append((model, prompt))
     
     # Query all models in parallel
-    final_results = []
-    for model, prompt in final_acceptance_tasks:
+    # Note: We can't use query_models_parallel because each model needs a different prompt
+    # (personalized with their own answer, chairman's communication, etc.)
+    async def query_single_model(model, prompt):
         messages = [{"role": "user", "content": prompt}]
         response = await query_model(model, messages, max_tokens=1000)
         
@@ -741,14 +1030,17 @@ Submit your final MCC as ONLY a number between 0-100 (no text):"""
             self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
             self_mcc = self_eval.get('self_mcc', 0) if self_eval else 0
             
-            final_results.append({
+            return {
                 "model": model,
                 "llm_final_decision": self_mcc,
                 "raw_response": None
-            })
-            continue
+            }
         
         raw_response = response.get('content', '').strip()
+        
+        # Get self evaluation for this model
+        self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
+        self_mcc = self_eval.get('self_mcc', 0) if self_eval else 0
         
         # Parse numeric response
         try:
@@ -757,28 +1049,38 @@ Submit your final MCC as ONLY a number between 0-100 (no text):"""
             if numbers:
                 llm_final_decision = float(numbers[0])
                 llm_final_decision = max(0, min(100, llm_final_decision))  # Clamp to [0, 100]
+                
+                # Enforce constraint: final decision <= self evaluation
+                if llm_final_decision > self_mcc:
+                    print(f"Warning: {model} final decision ({llm_final_decision}%) > self-evaluation ({self_mcc}%). Enforcing ceiling.")
+                    llm_final_decision = self_mcc
             else:
                 # Fallback - use self evaluation
-                self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
-                llm_final_decision = self_eval.get('self_mcc', 0) if self_eval else 0
+                llm_final_decision = self_mcc
             
-            final_results.append({
+            return {
                 "model": model,
                 "llm_final_decision": llm_final_decision,
                 "raw_response": raw_response
-            })
+            }
         except ValueError:
             # Fallback - use self evaluation
             self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
             llm_final_decision = self_eval.get('self_mcc', 0) if self_eval else 0
             
-            final_results.append({
+            return {
                 "model": model,
                 "llm_final_decision": llm_final_decision,
                 "raw_response": raw_response
-            })
+            }
     
-    return final_results
+    # Execute all queries in parallel
+    final_results = await asyncio.gather(*[
+        query_single_model(model, prompt) 
+        for model, prompt in final_acceptance_tasks
+    ])
+    
+    return list(final_results)
 
 
 def stage6_calculate_final_payments(
@@ -808,7 +1110,8 @@ def stage6_calculate_final_payments(
     Returns:
         Dict with payment calculations for each model
     """
-    quote_sum = sum(q["estimated_cost"] for q in stage0_quotes)
+    # Calculate total pot from ONLY the 3 selected models
+    quote_sum = sum(q["estimated_cost"] for q in stage0_quotes if q.get("selected", False))
     chairman_decisions = stage4_chairman_decision.get("decisions", {})
     
     payments = {}
@@ -822,16 +1125,26 @@ def stage6_calculate_final_payments(
         self_eval = next((se for se in stage3_self_evals if se['model'] == model), None)
         self_mcc = self_eval.get('self_mcc', 0) if self_eval else 0
         
-        # Calculate what chairman pays
-        if chairman_decision < llm_decision:
-            chairman_pays = llm_decision + NEGOTIATION_PENALTY_T
+        # Calculate what chairman pays (poker rules with proportional penalty)
+        if llm_decision > chairman_decision:
+            # LLM called chairman's bluff - chairman pays with penalty
+            # Penalty = 10% of the difference (punishment for lowballing too much)
+            difference = llm_decision - chairman_decision
+            penalty = difference * 0.2
+            chairman_pays = llm_decision + penalty
         else:
+            # LLM accepted or went lower, split the difference
             chairman_pays = (chairman_decision + llm_decision) / 2
         
-        # Calculate what LLM receives
+        # Calculate what LLM receives (with symmetric penalty)
         if llm_decision > chairman_decision:
-            llm_receives = chairman_decision - NEGOTIATION_PENALTY_T
+            # LLM overreached - receives penalty
+            # Penalty = 10% of how much they exceeded
+            difference = llm_decision - chairman_decision
+            penalty = difference * 0.2
+            llm_receives = chairman_decision - penalty
         else:
+            # LLM was reasonable, split the difference
             llm_receives = (chairman_decision + llm_decision) / 2
         
         # Calculate actual payment amounts
@@ -839,6 +1152,7 @@ def stage6_calculate_final_payments(
         quoted_cost = quote['estimated_cost'] if quote else 0
         
         payment_amount = (llm_receives / 100) * quote_sum
+        chairman_payment_amount = (chairman_pays / 100) * quote_sum
         
         payments[model] = {
             "model": model,
@@ -849,18 +1163,25 @@ def stage6_calculate_final_payments(
             "chairman_pays_mcc": chairman_pays,
             "llm_receives_mcc": llm_receives,
             "payment_amount_usd": payment_amount,
+            "chairman_payment_usd": chairman_payment_amount,
             "profit_usd": payment_amount - quoted_cost
         }
     
     # Calculate chairman's earnings
-    total_paid_mcc = sum(p["llm_receives_mcc"] for p in payments.values())
-    chairman_earnings_mcc = 100 - total_paid_mcc
+    # Chairman starts with the full pot (100% of quote_sum)
+    # Then pays out to each LLM (which can exceed 100% due to penalties)
+    total_chairman_pays_mcc = sum(p["chairman_pays_mcc"] for p in payments.values())
+    total_llm_receives_mcc = sum(p["llm_receives_mcc"] for p in payments.values())
+    
+    # Chairman earnings = what they started with minus what they paid
+    chairman_earnings_mcc = 100 - total_chairman_pays_mcc
     chairman_earnings_usd = (chairman_earnings_mcc / 100) * quote_sum
     
     return {
         "per_model_payments": payments,
         "total_quote_sum": quote_sum,
-        "total_paid_to_llms_mcc": total_paid_mcc,
+        "total_chairman_pays_mcc": total_chairman_pays_mcc,
+        "total_paid_to_llms_mcc": total_llm_receives_mcc,
         "chairman_earnings_mcc": chairman_earnings_mcc,
         "chairman_earnings_usd": chairman_earnings_usd
     }

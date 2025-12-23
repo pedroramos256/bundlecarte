@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './Stage3.css';
 
 export default function Stage3({ chairmanEval }) {
+  const [isOpen, setIsOpen] = useState(true); // Open by default
+  
   if (!chairmanEval) {
     return null;
   }
@@ -12,7 +15,7 @@ export default function Stage3({ chairmanEval }) {
   if (response && !aggregated_answer) {
     return (
       <div className="stage stage3">
-        <h3 className="stage-title">Stage 3: Chairman's Aggregated Answer</h3>
+        <h3 className="stage-title">Chairman's Aggregated Answer</h3>
         
         {model && (
           <div className="chairman-model">
@@ -34,7 +37,7 @@ export default function Stage3({ chairmanEval }) {
   if (aggregated_answer && chairman_mccs) {
     return (
       <div className="stage stage3">
-        <h3 className="stage-title">Stage 3: Chairman's Evaluation</h3>
+        <h3 className="stage-title">Chairman's Answer</h3>
         
         <div className="chairman-model">
           <span className="chairman-label">Chairman:</span>
@@ -42,14 +45,13 @@ export default function Stage3({ chairmanEval }) {
         </div>
 
         <div className="aggregated-section">
-          <h4 className="section-heading">Aggregated Answer</h4>
           <div className="aggregated-answer markdown-content">
             <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
           </div>
         </div>
 
         <div className="mcc-section">
-          <h4 className="section-heading">Initial MCC Assignments</h4>
+          <h4 className="section-heading">Marginal Contributions</h4>
           <div className="mcc-bars">
             {Object.entries(chairman_mccs).map(([mName, score]) => (
               <div key={mName} className="mcc-item">
@@ -83,9 +85,16 @@ export default function Stage3({ chairmanEval }) {
 
   return (
     <div className="stage stage3">
-      <h3 className="stage-title">Stage 3: Chairman's Evaluation</h3>
+      <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
+        <h3 className="stage-title">
+          <span className="toggle-icon">{isOpen ? '▼ ' : '▶ '}</span>
+          Chairman Evaluation
+        </h3>
+      </div>
       
-      <div className="chairman-model">
+      {isOpen && (
+        <>
+        <div className="chairman-model">
         <span className="chairman-label">Chairman:</span>
         <span className="chairman-value">{model.split('/')[1] || model}</span>
       </div>
@@ -98,7 +107,7 @@ export default function Stage3({ chairmanEval }) {
       </div>
 
       <div className="mcc-section">
-        <h4 className="section-heading">Initial MCC Assignments</h4>
+        <h4 className="section-heading">Marginal Contributions</h4>
         <div className="mcc-bars">
           {initial_mccs.map((item, index) => (
             <div key={index} className="mcc-item">
@@ -120,6 +129,8 @@ export default function Stage3({ chairmanEval }) {
           Total: {initial_mccs.reduce((sum, item) => sum + item.mcc, 0)}%
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

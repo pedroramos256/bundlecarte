@@ -55,22 +55,22 @@
 }
 
 .aggregated-answer .markdown-content {
-  font-size: 22px;
+  font-size: 14px;
 }
 
 .aggregated-answer .markdown-content p {
-  font-size: 22px;
+  font-size: 14px;
   margin: 12px 0;
 }
 
 .aggregated-answer .markdown-content li {
-  font-size: 22px;
+  font-size: 14px;
 }
 
 .aggregated-answer .markdown-content h1,
 .aggregated-answer .markdown-content h2,
 .aggregated-answer .markdown-content h3 {
-  font-size: 22px;
+  font-size: 14px;
 }
 
 .mcc-section {
