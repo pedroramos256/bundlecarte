@@ -28,7 +28,7 @@
 .evaluation-header {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 16px;
   cursor: pointer;
   user-select: none;
@@ -39,17 +39,39 @@
 .eval-model {
   font-weight: 600;
   color: #000000;
-  font-size: 15px;
-  min-width: 120px;
+  font-size: 14px;
+  min-width: 100px;
   flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .eval-mccs {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 768px) {
+  .evaluation-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .eval-model {
+    font-size: 13px;
+    min-width: 100%;
+    margin-bottom: 4px;
+  }
+  
+  .eval-mccs {
+    width: 100%;
+    gap: 6px;
+  }
 }
 
 .mcc-badge {
