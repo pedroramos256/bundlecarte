@@ -56,21 +56,35 @@
 
 .aggregated-answer .markdown-content {
   font-size: 0.875rem;
+  white-space: pre-wrap;
 }
 
 .aggregated-answer .markdown-content p {
   font-size: 0.875rem;
   margin: 0.75rem 0;
+  white-space: pre-wrap;
 }
 
 .aggregated-answer .markdown-content li {
   font-size: 0.875rem;
 }
 
-.aggregated-answer .markdown-content h1,
-.aggregated-answer .markdown-content h2,
+.aggregated-answer .markdown-content h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem 0;
+}
+
+.aggregated-answer .markdown-content h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0.875rem 0 0.5rem 0;
+}
+
 .aggregated-answer .markdown-content h3 {
-  font-size: 0.875rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem 0;
 }
 
 .mcc-section {

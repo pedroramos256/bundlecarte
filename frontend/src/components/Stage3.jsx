@@ -25,8 +25,10 @@ export default function Stage3({ chairmanEval }) {
         )}
 
         <div className="aggregated-section">
-          <div className="aggregated-answer markdown-content">
-            <ReactMarkdown>{response}</ReactMarkdown>
+          <div className="aggregated-answer">
+            <div className="markdown-content">
+              <ReactMarkdown>{response}</ReactMarkdown>
+            </div>
           </div>
         </div>
       </div>
@@ -45,8 +47,10 @@ export default function Stage3({ chairmanEval }) {
         </div>
 
         <div className="aggregated-section">
-          <div className="aggregated-answer markdown-content">
-            <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
+          <div className="aggregated-answer">
+            <div className="markdown-content">
+              <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
+            </div>
           </div>
         </div>
 
