@@ -17,8 +17,8 @@ export default function Stage4({ selfEvaluations }) {
     <div className="stage stage4">
       <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
         <h3 className="stage-title">
-          <span className="toggle-icon">{isOpen ? '▼' : '▶'}</span>
-          Self-Evaluations
+          <span className="toggle-icon">{isOpen ? '▼ ' : '▶ '}</span>
+           Self-Evaluations
         </h3>
       </div>
       

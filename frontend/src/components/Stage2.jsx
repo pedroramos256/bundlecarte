@@ -20,8 +20,8 @@ export default function Stage2({ responses }) {
     <div className="stage stage2">
       <div className="stage-header" onClick={() => setIsOpen(!isOpen)} style={{ cursor: 'pointer' }}>
         <h3 className="stage-title">
-          <span className="toggle-icon">{isOpen ? '▼' : '▶'}</span>
-          LLM Responses
+          <span className="toggle-icon">{isOpen ? '▼ ' : '▶ '}</span>
+           LLM Responses
         </h3>
       </div>
       

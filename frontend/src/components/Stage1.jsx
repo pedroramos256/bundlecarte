@@ -51,15 +51,11 @@ export default function Stage1({ quotes }) {
                 <span className="quote-value">{quote.quoted_tokens.toLocaleString()}</span>
               </div>
               <div className="quote-row">
-                <span className="quote-label">Input $/M:</span>
-                <span className="quote-value">${quote.cost_per_million.toFixed(2)}</span>
-              </div>
-              <div className="quote-row">
-                <span className="quote-label">Output $/M:</span>
+                <span className="quote-label">Cost per M tokens:</span>
                 <span className="quote-value">${(quote.output_cost_per_million || quote.cost_per_million).toFixed(2)}</span>
               </div>
               <div className="quote-row">
-                <span className="quote-label">Est. Cost:</span>
+                <span className="quote-label">Estimated Cost:</span>
                 <span className="quote-value cost-highlight">
                   ${quote.estimated_cost.toFixed(4)}
                 </span>

@@ -56,7 +56,7 @@ export default function ChatInterface({
       <div className="chat-interface">
         <div className="empty-state">
           <h2>Welcome to Bundle Carte</h2>
-          <p>Bundle the best models to get great answers</p>
+          <p> Bundle the best models to get great answers </p>
           <button className="start-chat-btn" onClick={onNewConversation}>
             Start new chat
           </button>
