@@ -541,9 +541,36 @@ IMPORTANT FORMATTING RULES:
     stage1_results = []
     for model, response in responses.items():
         if response is not None:  # Only include successful responses
+            content = response.get('content', '')
+            
+            # Clean up literal \n characters that LLMs write thinking they're markdown syntax
+            # But preserve \n inside code blocks
+            import re
+            
+            # Step 1: Protect code blocks
+            code_blocks = []
+            def save_code_block(match):
+                code_blocks.append(match.group(0))
+                return f"___CODE_BLOCK_{len(code_blocks)-1}___"
+            
+            content = re.sub(r'```[\s\S]*?```', save_code_block, content)
+            content = re.sub(r'`[^`\n]+`', save_code_block, content)
+            
+            # Step 2: Replace literal \n patterns
+            content = re.sub(r'\\n\\n', '\n\n', content)
+            content = re.sub(r'\\n-', '\n-', content)
+            content = re.sub(r'\\n#', '\n#', content)
+            content = re.sub(r'\\n\*', '\n*', content)
+            content = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], content)
+            content = re.sub(r'\\n([A-Z])', r'\n\1', content)
+            
+            # Step 3: Restore code blocks
+            for i, code_block in enumerate(code_blocks):
+                content = content.replace(f"___CODE_BLOCK_{i}___", code_block)
+            
             stage1_results.append({
                 "model": model,
-                "response": response.get('content', '')
+                "response": content
             })
 
     return stage1_results
@@ -764,16 +791,38 @@ CRITICAL FORMATTING RULES:
         aggregated_answer = answer_match.group(1)
         # Unescape common escape sequences
         aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
-        
-        # Also handle cases where LLM wrote literal \n in the markdown instead of escaped \\n
-        # This happens when LLM puts \n\n in markdown thinking it's a line break indicator
-        if '\\n' not in aggregated_answer and '\n' not in aggregated_answer:
-            # No actual newlines, might have literal \n text - but don't replace here
-            # as it would break valid markdown that happens to contain \n
-            pass
     else:
         # Last resort: use the entire response
         aggregated_answer = raw_response
+    
+    # Final cleanup: Handle cases where LLM wrote literal \n text in the response
+    # This happens when they think \n is markdown syntax for line breaks
+    # We need to be careful to preserve \n inside code blocks/inline code
+    
+    import re
+    
+    # Step 1: Protect code blocks and inline code by replacing \n with placeholder
+    code_blocks = []
+    def save_code_block(match):
+        code_blocks.append(match.group(0))
+        return f"___CODE_BLOCK_{len(code_blocks)-1}___"
+    
+    # Protect triple backtick code blocks
+    aggregated_answer = re.sub(r'```[\s\S]*?```', save_code_block, aggregated_answer)
+    # Protect inline code
+    aggregated_answer = re.sub(r'`[^`\n]+`', save_code_block, aggregated_answer)
+    
+    # Step 2: Now replace literal \n patterns with actual newlines
+    aggregated_answer = re.sub(r'\\n\\n', '\n\n', aggregated_answer)  # Double line breaks
+    aggregated_answer = re.sub(r'\\n-', '\n-', aggregated_answer)    # List items
+    aggregated_answer = re.sub(r'\\n#', '\n#', aggregated_answer)    # Headings
+    aggregated_answer = re.sub(r'\\n\*', '\n*', aggregated_answer)   # List items
+    aggregated_answer = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], aggregated_answer)  # Numbered lists
+    aggregated_answer = re.sub(r'\\n([A-Z])', r'\n\1', aggregated_answer)  # Before capitals
+    
+    # Step 3: Restore code blocks
+    for i, code_block in enumerate(code_blocks):
+        aggregated_answer = aggregated_answer.replace(f"___CODE_BLOCK_{i}___", code_block)
     
     return {
         "model": chairman,
