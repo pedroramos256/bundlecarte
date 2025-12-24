@@ -81,23 +81,23 @@
 
 .user-message .message-content {
   background: #ffffff;
-  padding: 16px;
-  border-radius: 8px;
+  padding: 1rem;
+  border-radius: 0.5rem;
   border: 1px solid #002fa7;
   color: #000000;
   line-height: 1.6;
   width: 100%;
   white-space: pre-wrap;
-  font-size: 14px;
+  font-size: 1.25rem;
 }
 
 .user-message .message-content .markdown-content {
-  font-size: 14px;
+  font-size: 1.25rem;
 }
 
 .user-message .message-content .markdown-content p {
-  font-size: 14px;
-  margin: 12px 0;
+  font-size: 1.25rem;
+  margin: 0.75rem 0;
 }
 
 .loading-indicator {
@@ -163,11 +163,11 @@
 
 .message-input {
   flex: 1;
-  padding: 14px 56px 14px 16px;
+  padding: 10px 56px 10px 16px;
   background: transparent;
   border: none;
   color: #000000;
-  font-size: 26px;
+  font-size: 1rem;
   font-family: inherit;
   line-height: 1.5;
   outline: none;
