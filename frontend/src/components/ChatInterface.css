@@ -100,6 +100,34 @@
   margin: 0.75rem 0;
 }
 
+.user-message .message-content .markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 1rem;
+}
+
+.user-message .message-content .markdown-content table th,
+.user-message .message-content .markdown-content table td {
+  border: 1px solid #000000;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.user-message .message-content .markdown-content table th {
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #002fa7;
+}
+
+.user-message .message-content .markdown-content table tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.user-message .message-content .markdown-content table tr:hover {
+  background: #f0f0f0;
+}
+
 .loading-indicator {
   display: flex;
   align-items: center;

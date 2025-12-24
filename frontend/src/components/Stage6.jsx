@@ -63,7 +63,7 @@ export default function Stage6({ llmFinals, chairmanDecision }) {
       </div>
 
       <div className="finals-note">
-        Final MCCs submitted by LLMs after seeing chairman's strategic communication values. Payments will be calculated in Stage 7.
+        Final Marginal Contributions submitted by LLMs after seeing chairman's strategic communication values. Payments will be calculated next.
       </div>
       </>
       )}

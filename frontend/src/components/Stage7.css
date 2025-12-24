@@ -70,7 +70,11 @@
 .col-payment,
 .col-revenue,
 .col-cost,
-.col-profit {
+.col-profit,
+.col-chairman-payment,
+.col-llm-payment,
+.col-chairman-dollars,
+.col-llm-dollars {
   display: flex;
   align-items: center;
 }

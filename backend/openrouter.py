@@ -9,7 +9,8 @@ async def query_model(
     model: str,
     messages: List[Dict[str, str]],
     timeout: float = 120.0,
-    max_tokens: Optional[int] = 500
+    max_tokens: Optional[int] = 1500,
+    reasoning: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter API.
@@ -36,18 +37,21 @@ async def query_model(
     # Add max_tokens to payload if specified
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    
+    # Add reasoning configuration to control reasoning tokens
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
 
     try:
         print(f"[OPENROUTER] Querying {model} with max_tokens={max_tokens}, timeout={timeout}s")
-        # Create timeout config with explicit connect and read timeouts
-        timeout_config = httpx.Timeout(timeout=timeout, connect=30.0, read=timeout, write=30.0)
+        # Create timeout config - use same timeout for all operations
+        timeout_config = httpx.Timeout(timeout=timeout, connect=timeout, read=timeout, write=timeout)
         async with httpx.AsyncClient(timeout=timeout_config) as client:
             response = await client.post(
                 OPENROUTER_API_URL,
                 headers=headers,
                 json=payload
             )
-            print(f"[OPENROUTER] {model} responded with status {response.status_code}")
             response.raise_for_status()
 
             data = response.json()
@@ -58,14 +62,41 @@ async def query_model(
                 return None
             
             message = data['choices'][0]['message']
-            content = message.get('content')
-            print(f"[OPENROUTER] {model} returned content length: {len(content) if content else 0}")
+            content = message.get('content', '')
+            reasoning = message.get('reasoning', '')
+            
+            # Print content and reasoning for debugging
+            print(f"[OPENROUTER] {model} content: {repr(content)}")
+            if reasoning:
+                print(f"[OPENROUTER] {model} reasoning: {repr(reasoning)}")
+            
+            # If content is empty but reasoning exists, try to use reasoning as content
+            if not content and reasoning:
+                print(f"[OPENROUTER] {model} has empty content but reasoning exists, using reasoning as content...")
+                content = reasoning
 
-            return {
+            result = {
                 'content': content,
+                'reasoning': reasoning,
                 'reasoning_details': message.get('reasoning_details')
             }
+            return result
 
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 400:
+            # 400 likely means the model doesn't support the reasoning parameter
+            # Try again without it if reasoning was specified
+            if reasoning is not None:
+                print(f"[OPENROUTER] Model {model} doesn't support reasoning parameter, retrying without it...")
+                result = await query_model(model, messages, timeout, max_tokens, reasoning=None)
+                print(f"[OPENROUTER] {model} retry completed, returning result")
+                return result
+            else:
+                print(f"[OPENROUTER] ERROR querying model {model}: HTTPStatusError: {e}")
+                return None
+        else:
+            print(f"[OPENROUTER] ERROR querying model {model}: HTTPStatusError: {e}")
+            return None
     except httpx.TimeoutException as e:
         print(f"[OPENROUTER] TIMEOUT querying model {model} after {timeout}s: {e}")
         return None
@@ -207,7 +238,13 @@ async def fetch_top_models(limit: int = 10) -> List[Dict[str, Any]]:
             
             result = []
             
-            # For each priority provider, get most recent and most expensive
+            # Calculate how many models per priority provider
+            # For limit=20 with 4 priority providers: get 4 per provider = 16, then 4 from others
+            # For limit=10 with 4 priority providers: get 2 per provider = 8, then 2 from others
+            priority_models_total = int(limit * 0.8)  # 80% for priority providers
+            models_per_priority = max(2, priority_models_total // len(priority_providers))
+            
+            # For each priority provider, get top models (most recent, most expensive, etc.)
             for provider in priority_providers:
                 if provider not in models_by_provider:
                     print(f"[OPENROUTER] No models found for {provider}")
@@ -215,12 +252,27 @@ async def fetch_top_models(limit: int = 10) -> List[Dict[str, Any]]:
                 
                 provider_models = models_by_provider[provider]
                 
-                # Most recent (newest creation date)
-                most_recent = max(provider_models, key=lambda m: m.get('created', 0))
+                # Get diverse models: most recent, most expensive, and others by recency
+                candidates = []
                 
-                # Most expensive (highest prompt pricing)
+                # Most recent
+                most_recent = max(provider_models, key=lambda m: m.get('created', 0))
+                if most_recent not in candidates:
+                    candidates.append(most_recent)
+                
+                # Most expensive
                 most_expensive = max(provider_models, key=lambda m: float(m.get('pricing', {}).get('prompt', '0')))
-                for model in [most_recent, most_expensive]:
+                if most_expensive not in candidates:
+                    candidates.append(most_expensive)
+                
+                # Fill remaining with other recent models
+                sorted_by_date = sorted(provider_models, key=lambda m: m.get('created', 0), reverse=True)
+                for model in sorted_by_date:
+                    if model not in candidates and len(candidates) < models_per_priority:
+                        candidates.append(model)
+                
+                # Add to result
+                for model in candidates[:models_per_priority]:
                     if model['id'] not in [r['id'] for r in result]:
                         pricing = model.get('pricing', {})
                         prompt_cost = float(pricing.get('prompt', '0')) * 1_000_000
@@ -254,8 +306,9 @@ async def fetch_top_models(limit: int = 10) -> List[Dict[str, Any]]:
             # Sort by creation date (newest first)
             other_providers_recent.sort(key=lambda x: x[1].get('created', 0), reverse=True)
             
-            # Add exactly 2 most recent models from other providers
-            for provider, model in other_providers_recent[:2]:
+            # Add models from other providers up to the limit
+            remaining_slots = limit - len(result)
+            for provider, model in other_providers_recent[:remaining_slots]:
                 if model['id'] not in [r['id'] for r in result]:
                     pricing = model.get('pricing', {})
                     prompt_cost = float(pricing.get('prompt', '0')) * 1_000_000
@@ -270,10 +323,50 @@ async def fetch_top_models(limit: int = 10) -> List[Dict[str, Any]]:
                             'completion': completion_cost
                         }
                     })
-            print(f"[OPENROUTER] Selected {len(result)} models:")
+            
+            # Separate priority and other providers for proper ordering
+            priority_result = [m for m in result if any(m['id'].startswith(p + '/') for p in priority_providers)]
+            other_result = [m for m in result if not any(m['id'].startswith(p + '/') for p in priority_providers)]
+            
+            # Interleave priority providers (2 from each: anthropic, google, openai, x-ai)
+            priority_by_provider = {}
+            for model in priority_result:
+                for provider in priority_providers:
+                    if model['id'].startswith(provider + '/'):
+                        if provider not in priority_by_provider:
+                            priority_by_provider[provider] = []
+                        priority_by_provider[provider].append(model)
+                        break
+            
+            # Build final list: first 8 are priority (2 per provider), then 2 others, then remaining
+            interleaved = []
+            
+            # Add first 2 from each priority provider (total 8)
+            for i in range(2):
+                for provider in priority_providers:  # Use fixed order for consistency
+                    if provider in priority_by_provider and i < len(priority_by_provider[provider]):
+                        interleaved.append(priority_by_provider[provider][i])
+            
+            # Add first 2 from other providers (positions 9-10)
+            interleaved.extend(other_result[:2])
+            
+            # Add remaining priority models (positions 11+)
+            for i in range(2, max((len(models) for models in priority_by_provider.values()), default=0)):
+                for provider in priority_providers:
+                    if provider in priority_by_provider and i < len(priority_by_provider[provider]):
+                        interleaved.append(priority_by_provider[provider][i])
+            
+            # Add remaining other providers (positions after priority backups)
+            interleaved.extend(other_result[2:])
+            
+            result = interleaved
+            
+            print(f"[OPENROUTER] Selected {len(result)} models (limit was {limit}):")
             for i, m in enumerate(result, 1):
                 ctx = m['context_length'] / 1000 if m['context_length'] else 0
-                print(f"  {i}. {m['id']}: {ctx:.0f}k ctx, input=${m['pricing']['prompt']:.2f}/M, output=${m['pricing']['completion']:.2f}/M")
+                provider = m['id'].split('/')[0]
+                priority_marker = "⭐" if any(m['id'].startswith(p + '/') for p in priority_providers) else "  "
+                print(f"  {priority_marker}{i}. {m['id']}: {ctx:.0f}k ctx, input=${m['pricing']['prompt']:.2f}/M, output=${m['pricing']['completion']:.2f}/M")
             
             return result
             

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './Stage3.css';
 
 export default function Stage3({ chairmanEval }) {
@@ -27,7 +28,7 @@ export default function Stage3({ chairmanEval }) {
         <div className="aggregated-section">
           <div className="aggregated-answer">
             <div className="markdown-content">
-              <ReactMarkdown>{response}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{response}</ReactMarkdown>
             </div>
           </div>
         </div>
@@ -49,7 +50,7 @@ export default function Stage3({ chairmanEval }) {
         <div className="aggregated-section">
           <div className="aggregated-answer">
             <div className="markdown-content">
-              <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{aggregated_answer}</ReactMarkdown>
             </div>
           </div>
         </div>
@@ -106,7 +107,7 @@ export default function Stage3({ chairmanEval }) {
       <div className="aggregated-section">
         <h4 className="section-heading">Aggregated Answer</h4>
         <div className="aggregated-answer markdown-content">
-          <ReactMarkdown>{aggregated_answer}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{aggregated_answer}</ReactMarkdown>
         </div>
       </div>
 

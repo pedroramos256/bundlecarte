@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
@@ -55,8 +56,8 @@ export default function ChatInterface({
     return (
       <div className="chat-interface">
         <div className="empty-state">
-          <h2>Welcome to Bundle Carte</h2>
-          <p> Bundle the best models to get great answers </p>
+          <h2>Bundle the best models</h2>
+          <p>Get holistic answers</p>
           <button className="start-chat-btn" onClick={onNewConversation}>
             Start new chat
           </button>
@@ -71,7 +72,6 @@ export default function ChatInterface({
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
-            <p>Ask a question to consult the Bundle Carte</p>
           </div>
         ) : (
           conversation.messages.map((msg, index) => (
@@ -81,7 +81,7 @@ export default function ChatInterface({
                   <div className="message-label">You</div>
                   <div className="message-content">
                     <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                     </div>
                   </div>
                 </div>
@@ -116,7 +116,7 @@ export default function ChatInterface({
                   {(msg.loading?.stage3 || (index === conversation.messages.length - 1 && isStageLoading(3))) && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
-                      <span>Chairman evaluating and assigning MCCs...</span>
+                      <span>Chairman evaluating...</span>
                     </div>
                   )}
                   {msg.stage3 && Object.keys(msg.stage3).length > 0 && <Stage3 chairmanEval={msg.stage3} />}

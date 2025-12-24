@@ -11,6 +11,115 @@ from .config import CHAIRMAN_MODEL, NEGOTIATION_PENALTY_T
 # NEW AUCTION MECHANISM - STAGE 0: TOKEN BUDGET QUOTING
 # ============================================================================
 
+def _extract_bid_from_response(response: Optional[Dict[str, Any]], model: str) -> Optional[int]:
+    """
+    Extract token bid from model response with multiple fallback strategies.
+    
+    Args:
+        response: Response dict from query_model
+        model: Model identifier for logging
+        
+    Returns:
+        Integer token bid, or None if extraction failed completely
+    """
+    if response is None or isinstance(response, Exception):
+        return None
+    
+    content = response.get('content', '').strip()
+    reasoning = response.get('reasoning', '')
+    
+    # If content is empty but reasoning exists, try reasoning
+    if not content and reasoning:
+        content = reasoning
+        print(f"[STAGE0] {model}: Using reasoning field as content")
+    
+    if not content:
+        return None
+    
+    import json
+    import re
+    
+    # Remove markdown code blocks if present (```json ... ```)
+    content_cleaned = re.sub(r'```(?:json)?\s*\n?(.*?)\n?```', r'\1', content, flags=re.DOTALL).strip()
+    
+    try:
+        # Try direct JSON parse on cleaned content
+        json_data = json.loads(content_cleaned)
+        if isinstance(json_data, dict) and 'bid' in json_data:
+            bid = int(json_data['bid'])
+            print(f"[STAGE0] {model}: Extracted {bid} tokens from JSON")
+            return bid
+    except (json.JSONDecodeError, ValueError, KeyError):
+        pass
+    
+    # Try to find JSON object with regex pattern
+    json_match = re.search(r'\{\s*"bid"\s*:\s*(\d+)\s*\}', content_cleaned)
+    if json_match:
+        try:
+            bid = int(json_match.group(1))
+            print(f"[STAGE0] {model}: Extracted {bid} tokens from JSON pattern")
+            return bid
+        except ValueError:
+            pass
+    
+    # Try broader JSON search
+    json_match = re.search(r'\{[^{}]*"bid"[^{}]*\}', content_cleaned)
+    if json_match:
+        try:
+            json_data = json.loads(json_match.group())
+            bid = int(json_data['bid'])
+            print(f"[STAGE0] {model}: Extracted {bid} tokens from embedded JSON")
+            return bid
+        except (json.JSONDecodeError, ValueError, KeyError):
+            pass
+    
+    # Fallback to plain number parsing
+    bid = _parse_token_count(content)
+    
+    # Validate if this was a real bid or just a default
+    if bid == 1500 and '1500' not in content:
+        print(f"[STAGE0] {model}: Invalid response (no JSON or number found) from '{content[:100]}'")
+        return None  # Return None for invalid responses instead of using fallback
+    
+    print(f"[STAGE0] {model}: Parsed {bid} tokens using fallback parser from '{content[:50]}'")
+    return bid
+
+
+def _build_bidding_prompt(user_query: str, cost: float, competitor_pricing: str) -> str:
+    """Build the standardized bidding prompt for models."""
+    return f"""You are participating in a token bidding auction for answering: "{user_query}"
+
+Your pricing: ${cost}/M tokens
+
+Competitor pricing:
+{competitor_pricing}
+
+AUCTION RULES:
+• Only the 3 LOWEST total bids get selected
+• Your total bid = ${cost}/M × tokens
+• Strategy: Balance cost vs quality
+  - High cost model? Bid fewer tokens to compete
+  - Low cost model? Can bid more tokens for better answer
+
+TOKEN GUIDELINES:
+• Simple/factual: 500-1000
+• Moderate: 1000-2000
+• Complex: 2000-8000
+• Detailed: 4000-16000
+
+Respond in JSON format ONLY:
+{{
+  "bid": <your token bid as integer between 500-16000>
+}}
+
+Examples:
+{{"bid": 800}}
+{{"bid": 1500}}
+{{"bid": 3000}}
+
+Your JSON response:"""
+
+
 async def stage0_collect_quotes(user_query: str) -> Tuple[List[Dict[str, Any]], List[str], str]:
     """
     Stage 0: Fetch top 10 models from OpenRouter, have them bid on token usage, select the 3 cheapest.
@@ -29,127 +138,269 @@ async def stage0_collect_quotes(user_query: str) -> Tuple[List[Dict[str, Any]], 
     """
     print(f"[STAGE0] Starting token quote collection for query: {user_query[:100]}...")
     
-    # Fetch 15 models with diversity (max 2 per provider)
-    # We fetch extra in case some fail during bidding
-    top_models_data = await fetch_top_models(limit=15)
+    # Fetch 20 models with diversity (max 2 per provider)
+    # We fetch extra in case some fail during bidding - need backups
+    top_models_data = await fetch_top_models(limit=20)
     
     if not top_models_data:
         print(f"[STAGE0] ERROR: Failed to fetch models from API, cannot proceed")
         raise Exception("Failed to fetch models from OpenRouter API")
     
-    top_models = [m['id'] for m in top_models_data]
+    print(f"[STAGE0] Fetched {len(top_models_data)} models from API")
     
-    print(f"[STAGE0] Querying {len(top_models)} models for bids")
-    print(f"[STAGE0] Models: {[m['id'] for m in top_models_data]}")
+    # Only query first 10 models initially, keep rest as backups
+    initial_models = top_models_data[:10]
+    top_models = [m['id'] for m in initial_models]
+    
+    print(f"[STAGE0] Querying {len(initial_models)} models for bids (keeping {len(top_models_data) - len(initial_models)} as backups)")
+    print(f"[STAGE0] Models: {[m['id'] for m in initial_models]}")
     
     # Build quote request messages for each model
     quote_requests = {}
     model_pricing = {}  # Store input pricing info
     model_output_pricing = {}  # Store output pricing info
     
+    # Store ALL model pricing (including backups) for later use
     for model_info in top_models_data:
         model = model_info['id']
-        cost = model_info['pricing']['prompt']  # Use prompt pricing from API
-        output_cost = model_info['pricing']['completion']  # Use completion pricing from API
+        cost = model_info['pricing']['prompt']
+        output_cost = model_info['pricing']['completion']
         model_pricing[model] = cost
         model_output_pricing[model] = output_cost
     
-    # Build competitor pricing list for display
+    # Build competitor pricing list for display (using only initial 10 models, not backups)
     competitor_pricing = "\n".join([
         f"- ${m['pricing']['completion']}/M tokens"
-        for m in top_models_data
+        for m in initial_models
     ])
     
-    for model_info in top_models_data:
+    # Build requests only for initial 10 models
+    for model_info in initial_models:
         model = model_info['id']
         cost = model_pricing[model]
-        
-        prompt = f"""You are bidding on how many tokens to use for answering a question.
-
-USER QUESTION:
-{user_query}
-
-Your cost: ${cost}/M tokens
-
-Competitor costs:
-{competitor_pricing}
-
-Selection: Only the 3 LOWEST total quotes will be selected
-Your Bid: Number of tokens you will use to answer the question
-Your Quote: Cost $/M tokens * Your bid
-What you will be payed: Your % Marginal Contribution to the answer * Total_Quote_Sum - Your_Quote
-
-IMPORTANT: You MUST respond with ONLY your Bid between 500-16000. Nothing else. 
-This bid corresponds to the number of tokens you will use to answer the question.
-
-Guidelines:
-- Simple math/factual questions: 500-1000 tokens
-- Moderate explanations: 1000-2000 tokens
-- Complex analysis/essays: 2000-8000 tokens
-- Very detailed research: 4000-16000 tokens
-
-STRATEGY: Balance quality vs cost.
-Lower bid = more likely selected, but lower quality answer that may reduce your Marginal Contribution.
-Higher bid = less likely selected if your Cost per million tokens is high. 
-If you have a high Cost compared to the competition, you should bid lower token counts in order to compete.
-
-Respond with ONLY the bid number (e.g., 800):"""
-
+        prompt = _build_bidding_prompt(user_query, cost, competitor_pricing)
         quote_requests[model] = [{"role": "user", "content": prompt}]
     
-    print(f"[STAGE0] Built {len(quote_requests)} quote requests")
     
-    # Query all models in parallel using asyncio.gather with 10s timeout for quotes
-    print(f"[STAGE0] Querying {len(quote_requests)} models in parallel with 10s timeout...")
-    response_list = await asyncio.gather(*[
-        query_model(model, messages, timeout=10.0, max_tokens=200)
-        for model, messages in quote_requests.items()
-    ])
+    
+    print(f"[STAGE0] Built {len(quote_requests)} quote requests")
+    print(f"[STAGE0] Models to query: {list(quote_requests.keys())}")
+    
+    # Query all models in parallel using asyncio.gather with 5s timeout for quotes
+    # Use return_exceptions=True to prevent hanging on timeout/errors
+    print(f"[STAGE0] Querying {len(quote_requests)} models in parallel with 5s timeout...")
+    
+    # Build the coroutines list explicitly to debug
+    coroutines = []
+    for model, messages in quote_requests.items():
+        print(f"[STAGE0] Creating coroutine for {model}")
+        coroutines.append(query_model(model, messages, timeout=10.0, max_tokens=500, reasoning={"effort": "none", "exclude": True}))
+    
+    print(f"[STAGE0] Created {len(coroutines)} coroutines, starting gather...")
+    
+    # Convert coroutines to tasks so we can inspect them
+    tasks = [asyncio.create_task(coro) for coro in coroutines]
+    
+    # Wait for all tasks with a timeout
+    done, pending = await asyncio.wait(tasks, timeout=12.0)
+    
+    print(f"[STAGE0] After 12s: {len(done)} tasks done, {len(pending)} tasks pending")
+    
+    # Collect results from completed tasks
+    response_list = []
+    for task in tasks:
+        if task.done():
+            try:
+                result = task.result()
+                response_list.append(result)
+            except Exception as e:
+                print(f"[STAGE0] Task raised exception: {type(e).__name__}: {e}")
+                response_list.append(None)
+        else:
+            print(f"[STAGE0] Task still pending, using None")
+            response_list.append(None)
+    
+    print(f"[STAGE0] Collected {len(response_list)} responses")
+    print(f"[STAGE0] Response list types: {[type(r).__name__ for r in response_list]}")
     
     # Map responses back to models
     responses = dict(zip(quote_requests.keys(), response_list))
+    print(f"[STAGE0] Processing {len(responses)} responses...")
     for model, response in responses.items():
-        print(f"[STAGE0] Got response from {model}: {response is not None}")
-        if response:
+        # Check if response is an exception
+        if isinstance(response, Exception):
+            print(f"[STAGE0] {model} raised exception: {type(response).__name__}: {response}")
+            responses[model] = None  # Treat exceptions as None
+        elif response is not None and isinstance(response, dict):
+            print(f"[STAGE0] Got response from {model}: {response is not None}")
             print(f"[STAGE0] Response content: {response.get('content', '')[:200]}")
         else:
-            print(f"[STAGE0] Response was None!")
+            print(f"[STAGE0] Response was None for {model}!")
     
     # Parse responses and extract token counts
     print(f"[STAGE0] Parsing responses...")
     all_quotes = []
-    for model in top_models:
-        response = responses.get(model)
-        cost_per_million = model_pricing.get(model, 10.0)
-        output_cost_per_million = model_output_pricing.get(model, 10.0)
-        
-        if response is None:
-            # Failed to get response - skip this model (likely 404 or error)
-            print(f"[STAGE0] {model}: No response, SKIPPING this model")
-            continue
-        
-        # Extract integer from response
-        content = response.get('content', '').strip()
-        quoted_tokens = _parse_token_count(content)
-        print(f"[STAGE0] {model}: Parsed {quoted_tokens} tokens from response")
-        
-        # Calculate estimated cost using OUTPUT pricing
-        estimated_cost = (quoted_tokens / 1_000_000) * output_cost_per_million
-        
-        all_quotes.append({
-            "model": model,
-            "cost_per_million": cost_per_million,
-            "output_cost_per_million": output_cost_per_million,
-            "quoted_tokens": quoted_tokens,
-            "estimated_cost": estimated_cost,
-            "raw_response": response.get('content', '') if response else None,
-            "selected": False  # Will be updated below
-        })
+    try:
+        for model in top_models:
+            print(f"[STAGE0] Processing model {model}...")
+            response = responses.get(model)
+            cost_per_million = model_pricing.get(model, 10.0)
+            output_cost_per_million = model_output_pricing.get(model, 10.0)
+            
+            if response is None or isinstance(response, Exception):
+                # Failed to get response - skip this model (likely 404 or error)
+                print(f"[STAGE0] {model}: No response, SKIPPING this model")
+                continue
+            
+            # Extract bid using helper function
+            quoted_tokens = _extract_bid_from_response(response, model)
+            
+            if quoted_tokens is None:
+                print(f"[STAGE0] {model}: Failed to extract bid, SKIPPING this model")
+                continue
+            
+            # Calculate estimated cost using OUTPUT pricing
+            estimated_cost = (quoted_tokens / 1_000_000) * output_cost_per_million
+            
+            content = response.get('content', '') if response else ''
+            all_quotes.append({
+                "model": model,
+                "cost_per_million": cost_per_million,
+                "output_cost_per_million": output_cost_per_million,
+                "quoted_tokens": quoted_tokens,
+                "estimated_cost": estimated_cost,
+                "raw_response": content,
+                "selected": False,  # Will be updated below
+                "valid_response": quoted_tokens != 1500 or '1500' in str(content)  # Track if response was valid
+            })
+    except Exception as e:
+        print(f"[STAGE0] ERROR in parsing loop: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    
+    print(f"[STAGE0] Finished parsing, got {len(all_quotes)} valid quotes")
     
     # Ensure we have at least 10 valid quotes for display
-    # If we have less than 10, log a warning but continue
+    # If we have less than 10, query backup models
     if len(all_quotes) < 10:
         print(f"[STAGE0] WARNING: Only got {len(all_quotes)} valid quotes (expected 10+)")
+        
+        # Determine which providers failed or returned invalid bids
+        queried_models = set(responses.keys())
+        print(f"[STAGE0] Queried {len(queried_models)} models: {queried_models}")
+        
+        # Get providers that failed (no valid bid)
+        valid_model_ids = {q['model'] for q in all_quotes}
+        failed_models = queried_models - valid_model_ids
+        failed_providers = {model.split('/')[0] for model in failed_models if '/' in model}
+        
+        print(f"[STAGE0] Failed providers: {failed_providers}")
+        
+        # Get backup models from the same providers that failed
+        priority_backups = [m for m in top_models_data 
+                           if m['id'] not in queried_models 
+                           and m['id'].split('/')[0] in failed_providers]
+        
+        # If we still need more, get from other providers
+        other_backups = [m for m in top_models_data 
+                        if m['id'] not in queried_models 
+                        and m['id'].split('/')[0] not in failed_providers]
+        
+        backup_models = priority_backups + other_backups
+        print(f"[STAGE0] Found {len(priority_backups)} backups from failed providers, {len(other_backups)} from others")
+        
+        # Query backups in batches until we reach 10 valid quotes or run out of backups
+        backup_index = 0
+        already_queried = set(responses.keys())
+        max_backup_rounds = 3  # Limit iterations to avoid infinite loops
+        
+        for round_num in range(max_backup_rounds):
+            if len(all_quotes) >= 10 or backup_index >= len(backup_models):
+                break
+            
+            needed = 10 - len(all_quotes)
+            batch_size = min(needed * 2, len(backup_models) - backup_index)  # Query 2x needed to account for failures
+            
+            print(f"[STAGE0] Round {round_num + 1}: Querying {batch_size} backup models (need {needed} more valid quotes)...")
+            
+            # Build requests for this batch of backup models
+            backup_requests = {}
+            for model_info in backup_models[backup_index:backup_index + batch_size]:
+                model = model_info['id']
+                if model in already_queried:
+                    continue
+                    
+                cost = model_info['pricing']['prompt']
+                output_cost = model_info['pricing']['completion']
+                
+                if model not in model_pricing:
+                    model_pricing[model] = cost
+                    model_output_pricing[model] = output_cost
+                
+                prompt = _build_bidding_prompt(user_query, cost, competitor_pricing)
+                backup_requests[model] = [{"role": "user", "content": prompt}]
+                already_queried.add(model)
+            
+            if not backup_requests:
+                print(f"[STAGE0] No new backup models to query")
+                break
+            
+            # Query backup models with same settings as initial queries
+            backup_tasks = [asyncio.create_task(query_model(model, messages, timeout=15.0, max_tokens=1000, reasoning={"effort": "none", "exclude": True}))
+                           for model, messages in backup_requests.items()]
+            
+            done, pending = await asyncio.wait(backup_tasks, timeout=7.0)
+            
+            print(f"[STAGE0] Backup queries: {len(done)} done, {len(pending)} pending")
+            
+            backup_responses = {}
+            for task in backup_tasks:
+                # Get the model name from backup_requests by index
+                model = list(backup_requests.keys())[backup_tasks.index(task)]
+                if task.done():
+                    try:
+                        backup_responses[model] = task.result()
+                    except Exception as e:
+                        print(f"[STAGE0] Backup {model} raised exception: {type(e).__name__}")
+                        backup_responses[model] = None
+                else:
+                    backup_responses[model] = None
+            
+            # Process backup responses using same helper function
+            quotes_before = len(all_quotes)
+            for model in backup_requests.keys():
+                response = backup_responses.get(model)
+                cost_per_million = model_pricing.get(model, 10.0)
+                output_cost_per_million = model_output_pricing.get(model, 10.0)
+                
+                if response is None or isinstance(response, Exception):
+                    print(f"[STAGE0] Backup {model}: Failed to get response")
+                    continue
+                
+                quoted_tokens = _extract_bid_from_response(response, f"Backup {model}")
+                
+                if quoted_tokens is None:
+                    print(f"[STAGE0] Backup {model}: Failed to extract bid")
+                    continue
+                
+                estimated_cost = (quoted_tokens / 1_000_000) * output_cost_per_million
+                
+                all_quotes.append({
+                    "model": model,
+                    "cost_per_million": cost_per_million,
+                    "output_cost_per_million": output_cost_per_million,
+                    "quoted_tokens": quoted_tokens,
+                    "estimated_cost": estimated_cost,
+                    "raw_response": response.get('content', '') if response else None,
+                    "selected": False,
+                    "valid_response": True  # Backup models get benefit of doubt
+                })
+                print(f"[STAGE0] Backup {model}: Added quote with {quoted_tokens} tokens")
+            
+            quotes_added = len(all_quotes) - quotes_before
+            print(f"[STAGE0] Round {round_num + 1} complete: Added {quotes_added} valid quotes, total now {len(all_quotes)}")
+            backup_index += batch_size
     
     # Sort by estimated cost (ascending) and select top 3
     all_quotes.sort(key=lambda x: x['estimated_cost'])
@@ -267,7 +518,11 @@ MCC CONCEPT (based on Shapley values from game theory):
 
 STRATEGY: Provide a complete answer AND bring unique value. Think of it as the "stop game" - information no other LLM mentions will be more valuable than what everyone else mentions. 
 
-IMPORTANT: Respond with just your answer to the user prompt
+IMPORTANT FORMATTING RULES:
+- Respond with just your answer to the user prompt
+- Use proper markdown formatting (headings with #, lists with -, bold with **, etc.)
+- Use actual newlines for paragraph breaks, NOT literal \\n characters
+- Write naturally as if typing in a text editor, not as if writing code
 {token_budget_note}"""
 
         messages = [{"role": "user", "content": prompt}]
@@ -355,17 +610,25 @@ CRITICAL MCC RULES:
 
 Consider: accuracy, clarity, completeness, unique contributions, user preference likelihood
 
-Answer in this EXACT JSON format (aggregated_answer can contain newlines using \\n):
+Answer in this EXACT JSON format:
 {{
-  "aggregated_answer": "your comprehensive answer with \\n for line breaks",
+  "aggregated_answer": "your comprehensive answer in markdown format (use proper markdown syntax, not \\n)",
   "MCC_LLM_1": number_0_to_100,
   "MCC_LLM_2": number_0_to_100,
   "MCC_LLM_3": number_0_to_100,
 }}
 
-CRITICAL: 
-- Return ONLY valid JSON (no markdown, no code blocks, no extra text)
-- Escape special characters in aggregated_answer (use \\n for newlines, \\" for quotes)
+CRITICAL FORMATTING RULES:
+- Return ONLY valid JSON (no markdown code blocks, no extra text before/after)
+- aggregated_answer should contain MARKDOWN text with proper formatting:
+  * Use # for headings (# Title, ## Subtitle, ### Section)
+  * Use - or * for bullet lists
+  * Use **bold** and *italic* for emphasis
+  * Use actual newlines for paragraph breaks (press Enter/Return)
+  * Write naturally as if typing markdown in a text editor
+- NEVER use literal \\n characters - they will appear as text instead of line breaks
+- Use actual line breaks in the JSON string value (JSON allows multiline strings)
+- Escape only quote marks as \\" when needed inside the string
 - The JSON must be parseable by json.loads()"""
 
     messages = [{"role": "user", "content": chairman_prompt}]
@@ -501,6 +764,13 @@ CRITICAL:
         aggregated_answer = answer_match.group(1)
         # Unescape common escape sequences
         aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+        
+        # Also handle cases where LLM wrote literal \n in the markdown instead of escaped \\n
+        # This happens when LLM puts \n\n in markdown thinking it's a line break indicator
+        if '\\n' not in aggregated_answer and '\n' not in aggregated_answer:
+            # No actual newlines, might have literal \n text - but don't replace here
+            # as it would break valid markdown that happens to contain \n
+            pass
     else:
         # Last resort: use the entire response
         aggregated_answer = raw_response
@@ -1041,7 +1311,7 @@ MAKE YOUR MOVE - Submit your final MCC as ONLY a number between {int(communicate
     # (personalized with their own answer, chairman's communication, etc.)
     async def query_single_model(model, prompt):
         messages = [{"role": "user", "content": prompt}]
-        response = await query_model(model, messages, max_tokens=1000)
+        response = await query_model(model, messages)
         
         if response is None:
             # Fallback - use self evaluation

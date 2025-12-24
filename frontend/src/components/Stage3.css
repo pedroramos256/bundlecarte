@@ -115,6 +115,34 @@
   font-style: italic;
 }
 
+.aggregated-answer .markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 1rem;
+}
+
+.aggregated-answer .markdown-content table th,
+.aggregated-answer .markdown-content table td {
+  border: 1px solid #000000;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.aggregated-answer .markdown-content table th {
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #002fa7;
+}
+
+.aggregated-answer .markdown-content table tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.aggregated-answer .markdown-content table tr:hover {
+  background: #f0f0f0;
+}
+
 .mcc-section {
   background: #ffffff;
   border: 1px solid #000000;
