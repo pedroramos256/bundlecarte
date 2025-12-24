@@ -543,8 +543,8 @@ IMPORTANT FORMATTING RULES:
         if response is not None:  # Only include successful responses
             content = response.get('content', '')
             
-            # Clean up literal \n characters that LLMs write thinking they're markdown syntax
-            # But preserve \n inside code blocks
+            # Clean up literal \n characters - simply replace them all
+            # Let the markdown parser handle the formatting
             import re
             
             # Step 1: Protect code blocks
@@ -556,14 +556,8 @@ IMPORTANT FORMATTING RULES:
             content = re.sub(r'```[\s\S]*?```', save_code_block, content)
             content = re.sub(r'`[^`\n]+`', save_code_block, content)
             
-            # Step 2: Replace literal \n patterns
-            content = re.sub(r'\\n\\n', '\n\n', content)
-            content = re.sub(r'\\n-', '\n-', content)
-            content = re.sub(r'\\n#', '\n#', content)
-            content = re.sub(r'\\n\*', '\n*', content)
-            content = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], content)
-            content = re.sub(r'\\n\|', '\n|', content)  # Table rows
-            content = re.sub(r'\\n([A-Z])', r'\n\1', content)
+            # Step 2: Replace ALL literal \n with actual newlines
+            content = content.replace('\\n', '\n')
             
             # Step 3: Restore code blocks
             for i, code_block in enumerate(code_blocks):
@@ -865,38 +859,29 @@ CRITICAL FORMATTING RULES:
             # Last resort: use the entire response
             aggregated_answer = raw_response
     
-    # Final cleanup: Handle cases where LLM wrote literal \n text in the response
-    # This happens when they think \n is markdown syntax for line breaks
-    # We need to be careful to preserve \n inside code blocks/inline code
+    # Final cleanup: Simply convert all literal \n to actual newlines
+    # Let the markdown parser handle everything else
+    # Only protect code blocks where \n should remain literal
     
     import re
     
-    # Step 1: Protect code blocks and inline code by replacing \n with placeholder
+    # Step 1: Protect code blocks
     code_blocks = []
     def save_code_block(match):
         code_blocks.append(match.group(0))
         return f"___CODE_BLOCK_{len(code_blocks)-1}___"
     
-    # Protect triple backtick code blocks
     aggregated_answer = re.sub(r'```[\s\S]*?```', save_code_block, aggregated_answer)
-    # Protect inline code
     aggregated_answer = re.sub(r'`[^`\n]+`', save_code_block, aggregated_answer)
     
-    # Step 2: Now replace literal \n patterns with actual newlines
-    aggregated_answer = re.sub(r'\\n\\n', '\n\n', aggregated_answer)  # Double line breaks
-    aggregated_answer = re.sub(r'\\n-', '\n-', aggregated_answer)    # List items
-    aggregated_answer = re.sub(r'\\n#', '\n#', aggregated_answer)    # Headings
-    aggregated_answer = re.sub(r'\\n\*', '\n*', aggregated_answer)   # List items
-    aggregated_answer = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], aggregated_answer)  # Numbered lists
-    aggregated_answer = re.sub(r'\\n\|', '\n|', aggregated_answer)   # Table rows
-    aggregated_answer = re.sub(r'\\n([A-Z])', r'\n\1', aggregated_answer)  # Before capitals
+    # Step 2: Simply replace ALL literal \n with actual newlines
+    aggregated_answer = aggregated_answer.replace('\\n', '\n')
     
     # Step 3: Restore code blocks
     for i, code_block in enumerate(code_blocks):
         aggregated_answer = aggregated_answer.replace(f"___CODE_BLOCK_{i}___", code_block)
     
-    # Step 4: Ensure tables have blank lines before and after (required by markdown parsers)
-    # Find table blocks (lines starting with |) and ensure they have blank lines around them
+    # Step 4: Ensure tables have blank lines around them
     lines = aggregated_answer.split('\n')
     result_lines = []
     in_table = False
@@ -907,7 +892,6 @@ CRITICAL FORMATTING RULES:
         is_table_line = stripped.startswith('|') and stripped.endswith('|')
         
         if is_table_line and not in_table and not prev_blank:
-            # Starting a table, need blank line before
             result_lines.append('')
         
         result_lines.append(line)
@@ -915,12 +899,10 @@ CRITICAL FORMATTING RULES:
         if is_table_line:
             in_table = True
         elif in_table and not is_table_line:
-            # Just exited table
             in_table = False
-            if stripped and i + 1 < len(lines):  # If next line exists and current isn't blank
+            if stripped and i + 1 < len(lines):
                 next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
                 if next_line and not next_line.startswith('|'):
-                    # Need blank line after table
                     result_lines.append('')
         
         prev_blank = not stripped
