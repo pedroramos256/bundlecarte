@@ -53,38 +53,56 @@ async def stage0_collect_quotes(user_query: str) -> Tuple[List[Dict[str, Any]], 
         output_cost = model_info['pricing']['completion']  # Use completion pricing from API
         model_pricing[model] = cost
         model_output_pricing[model] = output_cost
+    
+    # Build competitor pricing list for display
+    competitor_pricing = "\n".join([
+        f"- ${m['pricing']['completion']}/M tokens"
+        for m in top_models_data
+    ])
+    
+    for model_info in top_models_data:
+        model = model_info['id']
+        cost = model_pricing[model]
         
         prompt = f"""You are bidding on how many tokens to use for answering a question.
 
 USER QUESTION:
 {user_query}
 
-Your cost: ${cost} per million tokens
-Competition: {len(top_models_data)-1} other LLMs are bidding for 3 spots
-Selection: Only the 3 LOWEST total cost bids will be selected
-Payment formula: (Your MCC% / 100) × Total_Quote_Sum - Your_Cost
+Your cost: ${cost}/M tokens
 
-IMPORTANT: You MUST respond with ONLY a number between 500-16000. Nothing else.
+Competitor costs:
+{competitor_pricing}
+
+Selection: Only the 3 LOWEST total quotes will be selected
+Your Bid: Number of tokens you will use to answer the question
+Your Quote: Cost $/M tokens * Your bid
+What you will be payed: Your % Marginal Contribution to the answer * Total_Quote_Sum - Your_Quote
+
+IMPORTANT: You MUST respond with ONLY your Bid between 500-16000. Nothing else. 
+This bid corresponds to the number of tokens you will use to answer the question.
 
 Guidelines:
 - Simple math/factual questions: 500-1000 tokens
-- Moderate explanations: 1000-2000 tokens  
+- Moderate explanations: 1000-2000 tokens
 - Complex analysis/essays: 2000-8000 tokens
 - Very detailed research: 4000-16000 tokens
 
-STRATEGY: Balance quality vs cost. Lower quote = more likely selected, but need enough tokens for good answer.
-Higher cost models should bid lower token counts to compete.
+STRATEGY: Balance quality vs cost.
+Lower bid = more likely selected, but lower quality answer that may reduce your Marginal Contribution.
+Higher bid = less likely selected if your Cost per million tokens is high. 
+If you have a high Cost compared to the competition, you should bid lower token counts in order to compete.
 
-Respond with ONLY the number (e.g., 800):"""
+Respond with ONLY the bid number (e.g., 800):"""
 
         quote_requests[model] = [{"role": "user", "content": prompt}]
     
     print(f"[STAGE0] Built {len(quote_requests)} quote requests")
     
-    # Query all models in parallel using asyncio.gather
-    print(f"[STAGE0] Querying {len(quote_requests)} models in parallel...")
+    # Query all models in parallel using asyncio.gather with 10s timeout for quotes
+    print(f"[STAGE0] Querying {len(quote_requests)} models in parallel with 10s timeout...")
     response_list = await asyncio.gather(*[
-        query_model(model, messages)
+        query_model(model, messages, timeout=10.0, max_tokens=200)
         for model, messages in quote_requests.items()
     ])
     
