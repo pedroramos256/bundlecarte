@@ -809,20 +809,61 @@ CRITICAL FORMATTING RULES:
         chairman_mccs = {model: mcc * normalization_factor for model, mcc in chairman_mccs.items()}
         print(f"Normalized MCCs: {chairman_mccs}")
     
-    # Extract aggregated_answer: find content between "aggregated_answer": " and ", "MCC_
+    # Extract aggregated_answer using more robust pattern
+    # Look for content between "aggregated_answer": " and the next "MCC_LLM_ key
+    # This pattern handles escaped quotes and newlines better
     answer_match = re.search(
-        r'"aggregated_answer"\s*:\s*"(.*?)"\s*,\s*"MCC_LLM_',
+        r'"aggregated_answer"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"MCC_LLM_',
         raw_response,
         re.DOTALL
     )
     
+    if not answer_match:
+        # Try alternative pattern: capture until we hit the MCC section
+        answer_match = re.search(
+            r'"aggregated_answer"\s*:\s*"(.+?)(?=",\s*"MCC_LLM_)',
+            raw_response,
+            re.DOTALL
+        )
+    
     if answer_match:
         aggregated_answer = answer_match.group(1)
         # Unescape common escape sequences
-        aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+        aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
     else:
-        # Last resort: use the entire response
-        aggregated_answer = raw_response
+        # Try to extract everything between first { and last }
+        # Then look for aggregated_answer field
+        print(f"[STAGE2] Warning: Could not extract aggregated_answer cleanly, attempting full extraction")
+        json_match = re.search(r'\{(.+)\}', raw_response, re.DOTALL)
+        if json_match:
+            # Try to find where aggregated_answer value ends (before MCC_LLM_1)
+            content = json_match.group(1)
+            agg_start = content.find('"aggregated_answer"')
+            if agg_start >= 0:
+                # Find the opening quote after the colon
+                value_start = content.find('"', content.find(':', agg_start) + 1)
+                if value_start >= 0:
+                    # Find where MCC_LLM_1 starts
+                    mcc_start = content.find('"MCC_LLM_1"', value_start)
+                    if mcc_start >= 0:
+                        # Extract everything between, then find the closing quote before MCC
+                        chunk = content[value_start+1:mcc_start]
+                        # Find last quote followed by comma
+                        last_quote = chunk.rfind('"')
+                        if last_quote >= 0:
+                            aggregated_answer = chunk[:last_quote]
+                            aggregated_answer = aggregated_answer.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                        else:
+                            aggregated_answer = raw_response
+                    else:
+                        aggregated_answer = raw_response
+                else:
+                    aggregated_answer = raw_response
+            else:
+                aggregated_answer = raw_response
+        else:
+            # Last resort: use the entire response
+            aggregated_answer = raw_response
     
     # Final cleanup: Handle cases where LLM wrote literal \n text in the response
     # This happens when they think \n is markdown syntax for line breaks
