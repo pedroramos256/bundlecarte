@@ -562,11 +562,40 @@ IMPORTANT FORMATTING RULES:
             content = re.sub(r'\\n#', '\n#', content)
             content = re.sub(r'\\n\*', '\n*', content)
             content = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], content)
+            content = re.sub(r'\\n\|', '\n|', content)  # Table rows
             content = re.sub(r'\\n([A-Z])', r'\n\1', content)
             
             # Step 3: Restore code blocks
             for i, code_block in enumerate(code_blocks):
                 content = content.replace(f"___CODE_BLOCK_{i}___", code_block)
+            
+            # Step 4: Ensure tables have blank lines around them
+            lines = content.split('\n')
+            result_lines = []
+            in_table = False
+            prev_blank = True
+            
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                is_table_line = stripped.startswith('|') and stripped.endswith('|')
+                
+                if is_table_line and not in_table and not prev_blank:
+                    result_lines.append('')
+                
+                result_lines.append(line)
+                
+                if is_table_line:
+                    in_table = True
+                elif in_table and not is_table_line:
+                    in_table = False
+                    if stripped and i + 1 < len(lines):
+                        next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
+                        if next_line and not next_line.startswith('|'):
+                            result_lines.append('')
+                
+                prev_blank = not stripped
+            
+            content = '\n'.join(result_lines)
             
             stage1_results.append({
                 "model": model,
@@ -818,11 +847,44 @@ CRITICAL FORMATTING RULES:
     aggregated_answer = re.sub(r'\\n#', '\n#', aggregated_answer)    # Headings
     aggregated_answer = re.sub(r'\\n\*', '\n*', aggregated_answer)   # List items
     aggregated_answer = re.sub(r'\\n\d+\.', lambda m: '\n' + m.group(0)[2:], aggregated_answer)  # Numbered lists
+    aggregated_answer = re.sub(r'\\n\|', '\n|', aggregated_answer)   # Table rows
     aggregated_answer = re.sub(r'\\n([A-Z])', r'\n\1', aggregated_answer)  # Before capitals
     
     # Step 3: Restore code blocks
     for i, code_block in enumerate(code_blocks):
         aggregated_answer = aggregated_answer.replace(f"___CODE_BLOCK_{i}___", code_block)
+    
+    # Step 4: Ensure tables have blank lines before and after (required by markdown parsers)
+    # Find table blocks (lines starting with |) and ensure they have blank lines around them
+    lines = aggregated_answer.split('\n')
+    result_lines = []
+    in_table = False
+    prev_blank = True
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        is_table_line = stripped.startswith('|') and stripped.endswith('|')
+        
+        if is_table_line and not in_table and not prev_blank:
+            # Starting a table, need blank line before
+            result_lines.append('')
+        
+        result_lines.append(line)
+        
+        if is_table_line:
+            in_table = True
+        elif in_table and not is_table_line:
+            # Just exited table
+            in_table = False
+            if stripped and i + 1 < len(lines):  # If next line exists and current isn't blank
+                next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
+                if next_line and not next_line.startswith('|'):
+                    # Need blank line after table
+                    result_lines.append('')
+        
+        prev_blank = not stripped
+    
+    aggregated_answer = '\n'.join(result_lines)
     
     return {
         "model": chairman,

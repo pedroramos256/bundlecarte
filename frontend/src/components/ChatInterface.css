@@ -105,6 +105,9 @@
   border-collapse: collapse;
   margin: 1rem 0;
   font-size: 1rem;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .user-message .message-content .markdown-content table th,
@@ -112,6 +115,7 @@
   border: 1px solid #000000;
   padding: 0.5rem 0.75rem;
   text-align: left;
+  white-space: nowrap;
 }
 
 .user-message .message-content .markdown-content table th {
@@ -126,6 +130,18 @@
 
 .user-message .message-content .markdown-content table tr:hover {
   background: #f0f0f0;
+}
+
+@media (max-width: 768px) {
+  .user-message .message-content .markdown-content table {
+    font-size: 0.75rem;
+  }
+  
+  .user-message .message-content .markdown-content table th,
+  .user-message .message-content .markdown-content table td {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+  }
 }
 
 .loading-indicator {
